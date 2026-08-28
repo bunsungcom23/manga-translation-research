@@ -186,9 +186,9 @@ if st.session_state.stored_uploaded_files:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # 구글 공식 신규 SDK 규격에 맞는 안정적인 호출 방식
+                # 최신 안정 모델 규격인 gemini-2.5-flash 적용
                 response = client_obj.models.generate_content(
-                    model='gemini-1.5-flash',
+                    model='gemini-2.5-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
