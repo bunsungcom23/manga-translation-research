@@ -183,11 +183,12 @@ if st.session_state.stored_uploaded_files:
         4. Format the output clearly, matching each bubble number or text block with its extracted original text and Korean translation.
         """
 
-        max_retries = 5
+        max_retries = 3
         for attempt in range(max_retries):
             try:
+                # 구글 공식 신규 SDK 규격에 맞는 안정적인 호출 방식
                 response = client_obj.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-1.5-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -199,15 +200,11 @@ if st.session_state.stored_uploaded_files:
                 return True
             except Exception as e:
                 error_str = str(e)
-                if ("503" in error_str or "UNAVAILABLE" in error_str or "429" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 5
-                    time.sleep(wait_time)
+                if attempt == max_retries - 1:
+                    st.error(f"⚠️ [{t_name}] 번역 실패 상세 에러: {e}")
+                    return False
                 else:
-                    if attempt == max_retries - 1:
-                        st.error(f"⚠️ [{t_name}] 번역 실패 (상세 에러): {e}")
-                        return False
-                    else:
-                        time.sleep(2)
+                    time.sleep(2)
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🛡️ 대규모 연쇄 번역 (이어하기 지원)")
@@ -245,7 +242,7 @@ if st.session_state.stored_uploaded_files:
                         
                         completed += 1
                         progress_bar.progress(completed / total_to_do)
-                        time.sleep(2)
+                        time.sleep(1)
                     
                     status_text.text("✨ 이번 연쇄 번역 작업 구간이 완료되었습니다!")
                     st.success("🎉 번역 데이터가 백업 파일로 안전하게 저장되었습니다!")
@@ -264,9 +261,10 @@ if st.session_state.stored_uploaded_files:
             with st.spinner(f"[{selected_name}] 페이지 분석 및 번역 중..."):
                 try:
                     client = genai.Client(api_key=api_key)
-                    execute_translation(current_idx, client)
-                    st.success("현재 페이지 번역 완료!")
-                    st.rerun()
+                    success = execute_translation(current_idx, client)
+                    if success:
+                        st.success("현재 페이지 번역 완료!")
+                        st.rerun()
                 except Exception as e:
                     st.error(f"오류: {e}")
 
@@ -280,9 +278,11 @@ if st.session_state.stored_uploaded_files:
                 client = genai.Client(api_key=api_key)
                 for idx in range(total_files):
                     status_text.text(f"전체 재번역 중: [{idx+1}/{total_files}] {file_names[idx]}")
-                    execute_translation(idx, client)
+                    success = execute_translation(idx, client)
+                    if not success:
+                        break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(2)
+                    time.sleep(1)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
