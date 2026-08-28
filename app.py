@@ -161,7 +161,7 @@ if st.session_state.stored_uploaded_files:
         t_name = file_names[target_idx]
         t_image = Image.open(uploaded_files[target_idx])
         
-        context_prompt = ""
+        context_pronmpt = ""
         if target_idx > 0:
             prev_name = file_names[target_idx - 1]
             if prev_name in st.session_state.translation_history:
@@ -172,6 +172,10 @@ if st.session_state.stored_uploaded_files:
                     "위 이전 페이지의 스토리 흐름과 인물 대사 톤을 이어받아, "
                     "다음 페이지인 현재 페이지를 자연스럽게 이어서 번역해 주세요."
                 )
+            else:
+                context_prompt = ""
+        else:
+            context_prompt = ""
 
         prompt = f"""
         You are a professional manga translator and researcher.
@@ -186,9 +190,9 @@ if st.session_state.stored_uploaded_files:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # 최신 안정 모델 규격인 gemini-2.5-flash 적용
+                # 🚀 최신 안정 모델 규격인 gemini-3.6-flash 적용
                 response = client_obj.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3.6-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
