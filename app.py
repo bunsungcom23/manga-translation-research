@@ -19,7 +19,6 @@ api_key = ""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except:
-    # 로컬 테스트용 환경변수Fallback
     api_key = os.environ.get("GEMINI_API_KEY", "")
 
 def get_korean_font(size=14):
@@ -79,12 +78,12 @@ with st.sidebar:
     if st.session_state.translation_history:
         all_texts_combined = ""
         def strict_natural_key(filename):
-            sub_nums = re.findall(r'\\d+', filename)
+            sub_nums = re.findall(r'\d+', filename)
             return [int(n) for n in sub_nums] if sub_nums else [filename]
 
         sorted_history = sorted(st.session_state.translation_history.items(), key=lambda x: strict_natural_key(x[0]))
         for name, text in sorted_history:
-            all_texts_combined += f"=== [페이지: {name}] ===\\n{text}\\n\\n"
+            all_texts_combined += f"=== [페이지: {name}] ===\n{text}\n\n"
         
         st.download_button(
             label=f"📦 {volume_name} 전체 번역 모음 (TXT)",
@@ -104,7 +103,7 @@ uploaded_files = st.file_uploader(
 if uploaded_files:
     def strict_natural_sort_key(file):
         filename = file.name
-        numbers = re.findall(r'\\d+', filename)
+        numbers = re.findall(r'\d+', filename)
         if numbers:
             return [int(n) for n in numbers]
         return [filename]
@@ -166,14 +165,15 @@ if st.session_state.stored_uploaded_files:
         if target_idx > 0:
             prev_name = file_names[target_idx - 1]
             if prev_name in st.session_state.translation_history:
-                context_prompt = f\"\"\"
-                [참고용 이전 페이지({prev_name})의 번역 내용 요약]
-                {st.session_state.translation_history[prev_name]}
-                ---
-                위 이전 페이지의 스토리 흐름과 인물 대사 톤을 이어받아, 다음 페이지인 현재 페이지를 자연스럽게 이어서 번역해 주세요.
-                \"\"\"
+                context_prompt = (
+                    f"[참고용 이전 페이지({prev_name})의 번역 내용 요약]\n"
+                    f"{st.session_state.translation_history[prev_name]}\n"
+                    "---\n"
+                    "위 이전 페이지의 스토리 흐름과 인물 대사 톤을 이어받아, "
+                    "다음 페이지인 현재 페이지를 자연스럽게 이어서 번역해 주세요."
+                )
 
-        prompt = f\"\"\"
+        prompt = f"""
         You are a professional manga translator and researcher.
         Analyze this manga page image carefully.
         {context_prompt}
@@ -181,7 +181,7 @@ if st.session_state.stored_uploaded_files:
         2. Translate them into fluent, context-aware Korean suitable for academic manga comparison.
         3. Maintain consistent character tone and story continuity from previous pages if provided.
         4. Format the output clearly, matching each bubble number or text block with its extracted original text and Korean translation.
-        \"\"\"
+        """
 
         max_retries = 15
         for attempt in range(max_retries):
@@ -309,7 +309,7 @@ if st.session_state.stored_uploaded_files:
         draw.text((margin, y_text), f"[{volume_name} - {page_name}] Translation", fill=(0, 0, 0), font=font_title)
         y_text += 35
         
-        lines = res_text.split('\\n')
+        lines = res_text.split('\n')
         for line in lines:
             if y_text > target_height - 40:
                 draw.text((margin, y_text), "... (내용 생략됨)", fill=(100, 100, 100), font=font_body)
@@ -369,7 +369,7 @@ if st.session_state.stored_uploaded_files:
         st.subheader("🇰🇷 원본 글자 추출 및 맥락 연동 번역 결과")
         
         st.markdown(
-            \"\"\"
+            """
             <style>
             .scrollable-box {
                 max-height: 650px;
@@ -381,7 +381,7 @@ if st.session_state.stored_uploaded_files:
                 color: #000000;
             }
             </style>
-            \"\"\", 
+            """, 
             unsafe_allow_html=True
         )
 
