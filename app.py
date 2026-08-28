@@ -183,7 +183,7 @@ if st.session_state.stored_uploaded_files:
         4. Format the output clearly, matching each bubble number or text block with its extracted original text and Korean translation.
         """
 
-        max_retries = 15
+        max_retries = 5
         for attempt in range(max_retries):
             try:
                 response = client_obj.models.generate_content(
@@ -200,15 +200,14 @@ if st.session_state.stored_uploaded_files:
             except Exception as e:
                 error_str = str(e)
                 if ("503" in error_str or "UNAVAILABLE" in error_str or "429" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 8
+                    wait_time = (attempt + 1) * 5
                     time.sleep(wait_time)
                 else:
                     if attempt == max_retries - 1:
-                        st.error(f"⚠️ {t_name} 페이지 서버 과부하 지속으로 번역 실패: {e}")
+                        st.error(f"⚠️ [{t_name}] 번역 실패 (상세 에러): {e}")
                         return False
                     else:
-                        st.error(f"⚠️ {t_name} 오류 발생: {e}")
-                        return False
+                        time.sleep(2)
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🛡️ 대규모 연쇄 번역 (이어하기 지원)")
@@ -217,39 +216,40 @@ if st.session_state.stored_uploaded_files:
         if not api_key:
             st.sidebar.error("❌ API Key가 설정되지 않았습니다!")
         else:
-            client = genai.Client(api_key=api_key)
-            untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
-            
-            if not untranslated_indices:
-                st.sidebar.success("🎉 모든 페이지가 이미 번역되어 있습니다!")
-            else:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+            try:
+                client = genai.Client(api_key=api_key)
+            except Exception as init_err:
+                st.sidebar.error(f"❌ 클라이언트 초기화 오류: {init_err}")
+                client = None
+
+            if client:
+                untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
                 
-                completed = 0
-                total_to_do = len(untranslated_indices)
-                
-                for idx in untranslated_indices:
-                    f_name = file_names[idx]
-                    status_text.text(f"🚀 번역 중 [{volume_name}]: [{idx + 1} / {total_files}] {f_name} (남은 양: {total_to_do - completed}장)")
+                if not untranslated_indices:
+                    st.sidebar.success("🎉 모든 페이지가 이미 번역되어 있습니다!")
+                else:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
                     
-                    success = execute_translation(idx, client)
-                    if not success:
-                        st.error(f"중단됨: {f_name}에서 서버 응답이 원활하지 않습니다. 다시 버튼을 누르면 이어서 진행됩니다.")
-                        break
+                    completed = 0
+                    total_to_do = len(untranslated_indices)
                     
-                    completed += 1
-                    progress_bar.progress(completed / total_to_do)
+                    for idx in untranslated_indices:
+                        f_name = file_names[idx]
+                        status_text.text(f"🚀 번역 중 [{volume_name}]: [{idx + 1} / {total_files}] {f_name}")
+                        
+                        success = execute_translation(idx, client)
+                        if not success:
+                            st.error(f"중단됨: {f_name} 처리 중 문제가 발생했습니다. (위의 에러 메시지를 확인해주세요)")
+                            break
+                        
+                        completed += 1
+                        progress_bar.progress(completed / total_to_do)
+                        time.sleep(2)
                     
-                    if completed % 10 == 0 and completed < total_to_do:
-                        status_text.text(f"🛡️ 부하 방지: 10페이지 처리 후 12초간 안정화 휴식 중...")
-                        time.sleep(12)
-                    else:
-                        time.sleep(3)
-                
-                status_text.text("✨ 이번 연쇄 번역 작업 구간이 완료되었습니다!")
-                st.success("🎉 번역 데이터가 백업 파일로 안전하게 저장되었습니다!")
-                st.rerun()
+                    status_text.text("✨ 이번 연쇄 번역 작업 구간이 완료되었습니다!")
+                    st.success("🎉 번역 데이터가 백업 파일로 안전하게 저장되었습니다!")
+                    st.rerun()
 
     action_col1, action_col2 = st.columns(2)
     with action_col1:
@@ -276,16 +276,13 @@ if st.session_state.stored_uploaded_files:
         else:
             progress_bar = st.progress(0)
             status_text = st.empty()
-            client = genai.Client(api_key=api_key)
             try:
+                client = genai.Client(api_key=api_key)
                 for idx in range(total_files):
                     status_text.text(f"전체 재번역 중: [{idx+1}/{total_files}] {file_names[idx]}")
                     execute_translation(idx, client)
                     progress_bar.progress((idx + 1) / total_files)
-                    if (idx + 1) % 10 == 0:
-                        time.sleep(12)
-                    else:
-                        time.sleep(3)
+                    time.sleep(2)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
