@@ -161,7 +161,7 @@ if st.session_state.stored_uploaded_files:
         t_name = file_names[target_idx]
         t_image = Image.open(uploaded_files[target_idx])
         
-        context_pronmpt = ""
+        context_prompt = ""
         if target_idx > 0:
             prev_name = file_names[target_idx - 1]
             if prev_name in st.session_state.translation_history:
@@ -172,10 +172,6 @@ if st.session_state.stored_uploaded_files:
                     "위 이전 페이지의 스토리 흐름과 인물 대사 톤을 이어받아, "
                     "다음 페이지인 현재 페이지를 자연스럽게 이어서 번역해 주세요."
                 )
-            else:
-                context_prompt = ""
-        else:
-            context_prompt = ""
 
         prompt = f"""
         You are a professional manga translator and researcher.
@@ -187,10 +183,10 @@ if st.session_state.stored_uploaded_files:
         4. Format the output clearly, matching each bubble number or text block with its extracted original text and Korean translation.
         """
 
-        max_retries = 3
+        # 재시도 횟수를 늘려 일시적 과부하/속도 제한 방어
+        max_retries = 5
         for attempt in range(max_retries):
             try:
-                # 🚀 최신 안정 모델 규격인 gemini-3.6-flash 적용
                 response = client_obj.models.generate_content(
                     model='gemini-3.6-flash',
                     contents=[t_image, prompt]
@@ -203,12 +199,12 @@ if st.session_state.stored_uploaded_files:
                     bf.write(res_text)
                 return True
             except Exception as e:
-                error_str = str(e)
                 if attempt == max_retries - 1:
                     st.error(f"⚠️ [{t_name}] 번역 실패 상세 에러: {e}")
                     return False
                 else:
-                    time.sleep(2)
+                    # 재시도 전 대기 시간 점진적 증가 (백오프)
+                    time.sleep(3 * (attempt + 1))
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🛡️ 대규모 연쇄 번역 (이어하기 지원)")
@@ -241,12 +237,14 @@ if st.session_state.stored_uploaded_files:
                         
                         success = execute_translation(idx, client)
                         if not success:
-                            st.error(f"중단됨: {f_name} 처리 중 문제가 발생했습니다. (위의 에러 메시지를 확인해주세요)")
+                            st.error(f"중단됨: {f_name} 처리 중 문제가 발생했습니다. 백업된 페이지까지는 안전하게 저장되어 있습니다.")
                             break
                         
                         completed += 1
                         progress_bar.progress(completed / total_to_do)
-                        time.sleep(1)
+                        
+                        # 💡 핵심 수정: 페이지 요청 사이에 4초의 여유를 주어 API 속도 제한(Rate Limit) 회피
+                        time.sleep(4)
                     
                     status_text.text("✨ 이번 연쇄 번역 작업 구간이 완료되었습니다!")
                     st.success("🎉 번역 데이터가 백업 파일로 안전하게 저장되었습니다!")
@@ -286,7 +284,7 @@ if st.session_state.stored_uploaded_files:
                     if not success:
                         break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(1)
+                    time.sleep(4) # 일괄 재번역 시에도 4초 간격 부여
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
