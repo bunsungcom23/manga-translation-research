@@ -1,18 +1,18 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
-import google.generativeai as genai
+from google import genai
 import datetime
 import time
 import io
 import os
 import glob
 import re
-import base64
+import zipfile
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
-st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (통합 일괄 저장 지원)")
-st.markdown("💡 **Tip**: 자동 번역 후 하단이나 사이드바에서 **[전체 권 비교 통합 HTML 보고서 다운로드]**를 누르면, 모든 페이지가 나란히 배치된 책자 형태의 문서를 한 번에 얻을 수 있습니다. (한글 깨짐 없음)")
+st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (자동 릴레이 및 일괄 이미지 저장)")
+st.markdown("💡 **Tip**: 자동 릴레이 번역 완료 후, 사이드바의 **[모든 병합 이미지 ZIP 생성]**을 누르면 원본과 번역이 나란히 붙은 이미지들을 한 번에 다운로드받을 수 있습니다.")
 
 api_key = ""
 try:
@@ -20,8 +20,25 @@ try:
 except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
 
-if api_key:
-    genai.configure(api_key=api_key)
+def get_korean_font(size=14):
+    font_paths = [
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/malgun.ttf",
+        "C:/Windows/Fonts/gulim.ttc"
+    ]
+    for path in font_paths:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except:
+                continue
+    try:
+        return ImageFont.load_default()
+    except:
+        return None
 
 if "translation_history" not in st.session_state:
     st.session_state.translation_history = {}
@@ -35,87 +52,19 @@ if "auto_translate_running" not in st.session_state:
     st.session_state.auto_translate_running = False
 
 with st.sidebar:
-    st.header("⚙️ 프로젝트 & 일괄 내보내기")
+    st.header("⚙️ 프로젝트 & 백업 관리")
     
     if not api_key:
-        st.error("⚠️ 시스템에 Gemini API Key가 설정되지 않았습니다.")
+        st.error("⚠️ 시스템에 Gemini API Key가 설정되지 않았습니다. Streamlit Secrets를 확인해주세요.")
     else:
         st.success("✅ 시스템 API Key 연동 완료")
 
-    volume_name = st.text_input("현재 작업 중인 권/챕터 이름", value="vol_01")
+    volume_name = st.text_input("현재 작업 중인 권/챕터 이름", value="vol_01", help="예: vol_01, book_2 등 폴더/파일명 구분자")
     
     st.markdown("---")
-    st.markdown("### 📦 전체 일괄 저장 (권 단위)")
-    
-    # 이미지 파일을 Base64로 변환하여 HTML 내부에 포함시키는 통합 비교 보고서 생성 기능
-    if st.button("🌟 전체 페이지 비교 통합 보고서 생성 (HTML)"):
-        if not st.session_state.stored_uploaded_files:
-            st.warning("업로드된 이미지 파일이 없습니다.")
-        else:
-            def strict_natural_key(filename):
-                sub_nums = re.findall(r'\d+', filename)
-                return [int(n) for n in sub_nums] if sub_nums else [filename]
-
-            sorted_files_for_html = sorted(st.session_state.stored_uploaded_files, key=lambda x: strict_natural_key(x.name))
-            
-            html_content = f"""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>[{volume_name}] 만화 판본 비교 번역 보고서</title>
-                <style>
-                    body {{ font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; background-color: #f4f4f9; margin: 0; padding: 20px; color: #333; }}
-                    h1 {{ text-align: center; color: #2c3e50; margin-bottom: 30px; }}
-                    .page-container {{ display: flex; flex-direction: row; background: white; margin-bottom: 40px; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); page-break-after: always; }}
-                    .image-box {{ flex: 1; text-align: center; padding-right: 20px; border-right: 2px solid #eee; }}
-                    .image-box img {{ max-width: 100%; height: auto; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
-                    .text-box {{ flex: 1; padding-left: 20px; white-space: pre-wrap; font-size: 15px; line-height: 1.6; background: #fafbfc; padding: 15px; border-radius: 5px; overflow-y: auto; }}
-                    .page-title {{ font-size: 18px; font-weight: bold; margin-bottom: 15px; color: #2980b9; }}
-                </style>
-            </head>
-            <body>
-                <h1>📚 [{volume_name}] 만화 판본 비교 번역 통합 보고서</h1>
-            """
-            
-            for file_obj in sorted_files_for_html:
-                f_name = file_obj.name
-                # 이미지를 열어서 base64 인코딩
-                file_obj.seek(0)
-                img_bytes = file_obj.read()
-                encoded_img = base64.b64encode(img_bytes).decode('utf-8')
-                
-                # 번역 텍스트 가져오기
-                trans_text = st.session_state.translation_history.get(f_name, "⚠️ 아직 번역되지 않은 페이지입니다.")
-                
-                html_content += f"""
-                <div class="page-container">
-                    <div class="image-box">
-                        <div class="page-title">🖼️ 원본 페이지: {f_name}</div>
-                        <img src="data:image/jpeg;base64,{encoded_img}" />
-                    </div>
-                    <div class="text-box">
-                        <div class="page-title">🇰🇷 글자 추출 및 번역 결과</div>
-                        <div>{trans_text}</div>
-                    </div>
-                </div>
-                """
-            
-            html_content += """
-            </body>
-            </html>
-            """
-            
-            st.download_button(
-                label="📥 통합 비교 보고서 다운로드 (HTML)",
-                data=html_content,
-                file_name=f"{volume_name}_comparison_report.html",
-                mime="text/html"
-            )
-            st.success("✅ 전체 페이지가 나란히 배치된 통합 보고서가 생성되었습니다! 다운로드 버튼을 눌러주세요.")
-
-    st.markdown("---")
+    st.markdown("### 🔄 데이터 복구 및 백업")
     backup_prefix = f"manga_backup_{volume_name}_"
+    
     if st.button("📁 서버 저장소에서 해당 권 백업 불러오기"):
         backup_files = glob.glob(f"{backup_prefix}*.txt")
         recovered_count = 0
@@ -129,6 +78,27 @@ with st.sidebar:
             st.rerun()
         else:
             st.warning(f"[{volume_name}] 백업 파일이 없습니다.")
+
+    st.markdown("---")
+    st.markdown(f"### 📥 [{volume_name}] 전체 데이터 내보내기")
+    if st.session_state.translation_history:
+        all_texts_combined = ""
+        def strict_natural_key(filename):
+            sub_nums = re.findall(r'\d+', filename)
+            return [int(n) for n in sub_nums] if sub_nums else [filename]
+
+        sorted_history = sorted(st.session_state.translation_history.items(), key=lambda x: strict_natural_key(x[0]))
+        for name, text in sorted_history:
+            all_texts_combined += f"=== [페이지: {name}] ===\n{text}\n\n"
+        
+        st.download_button(
+            label=f"📦 {volume_name} 전체 번역 모음 (TXT)",
+            data=all_texts_combined,
+            file_name=f"{volume_name}_all_translations_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+            mime="text/plain"
+        )
+    else:
+        st.info("번역 내역이 쌓이면 활성화됩니다.")
 
 uploaded_files = st.file_uploader(
     "번역할 만화 페이지 이미지들을 대량으로 업로드하세요",
@@ -153,7 +123,7 @@ if st.session_state.stored_uploaded_files:
     file_names = st.session_state.stored_file_names
     total_files = len(uploaded_files)
 
-    st.success(f"🎯 인식된 총 페이지 수: **{total_files}장**")
+    st.success(f"🎯 인식된 총 페이지 수: **{total_files}장** (파일명 순서 정렬 완료)")
 
     if st.session_state.current_idx >= total_files:
         st.session_state.current_idx = 0
@@ -193,7 +163,7 @@ if st.session_state.stored_uploaded_files:
 
     st.markdown("---")
 
-    def execute_translation(target_idx):
+    def execute_translation(target_idx, client_obj):
         t_name = file_names[target_idx]
         t_image = Image.open(uploaded_files[target_idx])
         
@@ -219,11 +189,14 @@ if st.session_state.stored_uploaded_files:
         4. Format the output clearly, matching each bubble number or text block with its extracted original text and Korean translation.
         """
 
-        max_retries = 3
+        max_retries = 5
         for attempt in range(max_retries):
             try:
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content([t_image, prompt])
+                # 정상 작동하는 안정적인 플래시 모델명으로 교체
+                response = client_obj.models.generate_content(
+                    model='gemini-1.5-flash',
+                    contents=[t_image, prompt]
+                )
                 res_text = response.text
                 st.session_state.translation_history[t_name] = res_text
                 
@@ -235,7 +208,7 @@ if st.session_state.stored_uploaded_files:
                 if attempt == max_retries - 1:
                     return False
                 else:
-                    time.sleep(5)
+                    time.sleep(5 * (attempt + 1))
         return False
 
     st.sidebar.markdown("---")
@@ -260,24 +233,31 @@ if st.session_state.stored_uploaded_files:
             st.sidebar.error("❌ API Key가 없습니다!")
             st.session_state.auto_translate_running = False
         else:
-            untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
-            
-            if not untranslated_indices:
-                st.sidebar.success("🎉 모든 페이지 번역 완료!")
-                st.session_state.auto_translate_running = False
-            else:
-                target_idx = untranslated_indices[0]
-                f_name = file_names[target_idx]
+            try:
+                client = genai.Client(api_key=api_key)
+            except Exception as init_err:
+                st.sidebar.error(f"❌ 클라이언트 초기화 오류: {init_err}")
+                client = None
+
+            if client:
+                untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
                 
-                with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
-                    success = execute_translation(target_idx)
-                    if success:
-                        time.sleep(5)
-                        st.rerun()
-                    else:
-                        st.error(f"⚠️ [{f_name}] 번역 실패. 다시 시도합니다.")
-                        time.sleep(5)
-                        st.rerun()
+                if not untranslated_indices:
+                    st.sidebar.success("🎉 모든 페이지 번역 완료!")
+                    st.session_state.auto_translate_running = False
+                else:
+                    target_idx = untranslated_indices[0]
+                    f_name = file_names[target_idx]
+                    
+                    with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
+                        success = execute_translation(target_idx, client)
+                        if success:
+                            time.sleep(5)
+                            st.rerun()
+                        else:
+                            st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
+                            time.sleep(5)
+                            st.rerun()
 
     action_col1, action_col2 = st.columns(2)
     with action_col1:
@@ -290,12 +270,16 @@ if st.session_state.stored_uploaded_files:
             st.error("❌ API Key가 없습니다!")
         else:
             with st.spinner(f"[{selected_name}] 페이지 분석 및 번역 중..."):
-                success = execute_translation(current_idx)
-                if success:
-                    st.success("현재 페이지 번역 완료!")
-                    st.rerun()
-                else:
-                    st.error("번역 실패")
+                try:
+                    client = genai.Client(api_key=api_key)
+                    success = execute_translation(current_idx, client)
+                    if success:
+                        st.success("현재 페이지 번역 완료!")
+                        st.rerun()
+                    else:
+                        st.error("번역 실패 (API 응답 오류)")
+                except Exception as e:
+                    st.error(f"오류: {e}")
 
     if batch_btn:
         if not api_key:
@@ -303,17 +287,88 @@ if st.session_state.stored_uploaded_files:
         else:
             progress_bar = st.progress(0)
             status_text = st.empty()
-            for idx in range(total_files):
-                status_text.text(f"전체 재번역 중: [{idx+1}/{total_files}] {file_names[idx]}")
-                success = execute_translation(idx)
-                if not success:
-                    break
-                progress_bar.progress((idx + 1) / total_files)
-                time.sleep(5)
-            st.success("전체 강제 재번역 완료!")
-            st.rerun()
+            try:
+                client = genai.Client(api_key=api_key)
+                for idx in range(total_files):
+                    status_text.text(f"전체 재번역 중: [{idx+1}/{total_files}] {file_names[idx]}")
+                    success = execute_translation(idx, client)
+                    if not success:
+                        break
+                    progress_bar.progress((idx + 1) / total_files)
+                    time.sleep(5)
+                st.success("전체 강제 재번역 완료!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"오류: {e}")
 
     st.markdown("---")
+
+    def create_merged_image(img_file, res_text, page_name):
+        base_img = Image.open(img_file).convert("RGB")
+        target_height = base_img.height
+        
+        panel_width = 650
+        panel = Image.new("RGB", (panel_width, target_height), (255, 255, 255))
+        draw = ImageDraw.Draw(panel)
+        
+        font_title = get_korean_font(16)
+        font_body = get_korean_font(13)
+        
+        margin = 20
+        y_text = margin
+        draw.text((margin, y_text), f"[{volume_name} - {page_name}] Translation", fill=(0, 0, 0), font=font_title)
+        y_text += 35
+        
+        lines = res_text.split('\n')
+        for line in lines:
+            if y_text > target_height - 40:
+                draw.text((margin, y_text), "... (내용 생략됨)", fill=(100, 100, 100), font=font_body)
+                break
+            
+            max_chars = 40
+            wrapped_line = [line[i:i+max_chars] for i in range(0, len(line), max_chars)] if len(line) > max_chars else [line]
+            for w_line in wrapped_line:
+                if y_text > target_height - 30:
+                    break
+                draw.text((margin, y_text), w_line, fill=(30, 30, 30), font=font_body)
+                y_text += 22
+            y_text += 4
+
+        total_width = base_img.width + panel.width
+        combined_image = Image.new("RGB", (total_width, target_height))
+        combined_image.paste(base_img, (0, 0))
+        combined_image.paste(panel, (base_img.width, 0))
+        return combined_image
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("📦 병합 이미지 ZIP 일괄 저장")
+    if st.session_state.translation_history:
+        if st.sidebar.button(f"🖼️ [{volume_name}] 모든 병합 이미지 ZIP 생성"):
+            with st.spinner("모든 페이지의 병합 이미지를 생성하고 압축하는 중입니다..."):
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
+                    for idx, file_obj in enumerate(uploaded_files):
+                        f_name = file_names[idx]
+                        if f_name in st.session_state.translation_history:
+                            res_text = st.session_state.translation_history[f_name]
+                            file_obj.seek(0)
+                            merged_img = create_merged_image(file_obj, res_text, f_name)
+                            
+                            img_byte_arr = io.BytesIO()
+                            merged_img.save(img_byte_arr, format="PNG")
+                            img_byte_arr.seek(0)
+                            
+                            zip_file.writestr(f"{volume_name}_merged_{f_name}.png", img_byte_arr.getvalue())
+                
+                zip_buffer.seek(0)
+                st.sidebar.download_button(
+                    label="📥 압축된 ZIP 파일 다운로드",
+                    data=zip_buffer,
+                    file_name=f"{volume_name}_merged_images_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                    mime="application/zip"
+                )
+    else:
+        st.sidebar.info("번역된 내역이 있어야 일괄 이미지 다운로드가 활성화됩니다.")
 
     col1, col2 = st.columns(2)
 
@@ -352,5 +407,21 @@ if st.session_state.stored_uploaded_files:
                 file_name=f"{volume_name}_translation_{selected_name}.txt",
                 mime="text/plain"
             )
+            
+            st.markdown("---")
+            if st.button("🖼️ 현재 페이지만 이미지(PNG)로 병합 저장"):
+                with st.spinner("이미지 생성 중..."):
+                    selected_file.seek(0)
+                    combined_image = create_merged_image(selected_file, result_text, selected_name)
+                    buf = io.BytesIO()
+                    combined_image.save(buf, format="PNG")
+                    byte_im = buf.getvalue()
+                    
+                    st.download_button(
+                        label="💾 이 병합 이미지 최종 다운로드",
+                        data=byte_im,
+                        file_name=f"{volume_name}_merged_{selected_name}.png",
+                        mime="image/png"
+                    )
         else:
             st.warning("아직 이 페이지의 번역이 실행되지 않았습니다. 사이드바의 [자동 번역 시작] 버튼을 눌러주세요.")
