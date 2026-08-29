@@ -11,10 +11,9 @@ import zipfile
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
-st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템")
-st.markdown("💡 **Tip**: 연구자 및 일반 독자들이 안정적으로 번역을 비교할 수 있도록 **타임아웃 방지 대기 시간 연장 및 한글 폰트 드로잉 최적화**가 적용되었습니다.")
+st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (자동 릴레이 모드)")
+st.markdown("💡 **Tip**: 이미지를 올리면 **버튼을 누를 필요 없이 미번역 페이지가 자동으로 연쇄 번역**되며, 끊기더라도 스스로 이어달립니다.")
 
-# Streamlit Cloud의 Secrets에서 API 키를 안전하게 자동 로드
 api_key = ""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
@@ -25,7 +24,10 @@ def get_korean_font(size=14):
     font_paths = [
         "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
         "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "C:/Windows/Fonts/malgun.ttf",
+        "C:/Windows/Fonts/gulim.ttc"
     ]
     for path in font_paths:
         if os.path.exists(path):
@@ -33,10 +35,11 @@ def get_korean_font(size=14):
                 return ImageFont.truetype(path, size)
             except:
                 continue
-    # 시스템에 폰트가 없을 경우 기본 폰트 반환 경고
-    return ImageFont.load_default()
+    try:
+        return ImageFont.load_default()
+    except:
+        return None
 
-# 세션 상태 초기화
 if "translation_history" not in st.session_state:
     st.session_state.translation_history = {}
 if "current_idx" not in st.session_state:
@@ -45,6 +48,8 @@ if "stored_uploaded_files" not in st.session_state:
     st.session_state.stored_uploaded_files = None
 if "stored_file_names" not in st.session_state:
     st.session_state.stored_file_names = []
+if "auto_translate_running" not in st.session_state:
+    st.session_state.auto_translate_running = False
 
 with st.sidebar:
     st.header("⚙️ 프로젝트 & 백업 관리")
@@ -200,17 +205,33 @@ if st.session_state.stored_uploaded_files:
                 return True
             except Exception as e:
                 if attempt == max_retries - 1:
-                    st.error(f"⚠️ [{t_name}] 번역 실패 상세 에러: {e}")
                     return False
                 else:
-                    time.sleep(8 * (attempt + 1))
+                    time.sleep(10 * (attempt + 1))
+        return False
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🛡️ 대규모 연쇄 번역 (이어하기 지원)")
+    st.sidebar.subheader("🚀 자동 릴레이 번역 제어")
     
-    if st.sidebar.button("🚀 대규모 연쇄 번역 시작"):
+    col_auto1, col_auto2 = st.sidebar.columns(2)
+    with col_auto1:
+        start_auto = st.button("자동 번역 시작", use_container_width=True)
+    with col_auto2:
+        stop_auto = st.button("정지", use_container_width=True)
+
+    if start_auto:
+        st.session_state.auto_translate_running = True
+        st.rerun()
+
+    if stop_auto:
+        st.session_state.auto_translate_running = False
+        st.rerun()
+
+    # 자동 릴레이 실행기 (사용자가 버튼을 누르지 않아도 번역되지 않은 다음 장을 찾아 스스로 루프를 돎)
+    if st.session_state.auto_translate_running:
         if not api_key:
-            st.sidebar.error("❌ API Key가 설정되지 않았습니다!")
+            st.sidebar.error("❌ API Key가 없습니다!")
+            st.session_state.auto_translate_running = False
         else:
             try:
                 client = genai.Client(api_key=api_key)
@@ -222,32 +243,22 @@ if st.session_state.stored_uploaded_files:
                 untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
                 
                 if not untranslated_indices:
-                    st.sidebar.success("🎉 모든 페이지가 이미 번역되어 있습니다!")
+                    st.sidebar.success("🎉 모든 페이지 번역 완료!")
+                    st.session_state.auto_translate_running = False
                 else:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+                    # 이번 턴에 한 장만 안전하게 번역하고 페이지를 자동 갱신(Rerun)하여 부하를 분산시킴
+                    target_idx = untranslated_indices[0]
+                    f_name = file_names[target_idx]
                     
-                    completed = 0
-                    total_to_do = len(untranslated_indices)
-                    
-                    for idx in untranslated_indices:
-                        f_name = file_names[idx]
-                        status_text.text(f"🚀 번역 중 [{volume_name}]: [{idx + 1} / {total_files}] {f_name}")
-                        
-                        success = execute_translation(idx, client)
-                        if not success:
-                            st.error(f"중단됨: {f_name} 처리 중 문제가 발생했습니다. 백업된 페이지까지는 안전하게 저장되어 있습니다.")
-                            break
-                        
-                        completed += 1
-                        progress_bar.progress(completed / total_to_do)
-                        
-                        # API 과부하 및 속도 제한(Rate Limit)을 안전하게 피하기 위해 지연 시간을 25초로 대폭 늘림
-                        time.sleep(25)
-                    
-                    status_text.text("✨ 이번 연쇄 번역 작업 구간이 완료되었습니다!")
-                    st.success("🎉 번역 데이터가 백업 파일로 안전하게 저장되었습니다!")
-                    st.rerun()
+                    with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
+                        success = execute_translation(target_idx, client)
+                        if success:
+                            time.sleep(12)  # API 부하 방지 대기 시간
+                            st.rerun()      # 스스로 새로고침하여 다음 장으로 자동 이동
+                        else:
+                            st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
+                            time.sleep(15)
+                            st.rerun()
 
     action_col1, action_col2 = st.columns(2)
     with action_col1:
@@ -283,7 +294,7 @@ if st.session_state.stored_uploaded_files:
                     if not success:
                         break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(25)
+                    time.sleep(15)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
@@ -318,7 +329,7 @@ if st.session_state.stored_uploaded_files:
             for w_line in wrapped_line:
                 if y_text > target_height - 30:
                     break
-                draw.text((margin, y_text), w_line, fill=(30, 30, 30), font=font_body, encoding="utf-8")
+                draw.text((margin, y_text), w_line, fill=(30, 30, 30), font=font_body)
                 y_text += 22
             y_text += 4
 
@@ -410,4 +421,4 @@ if st.session_state.stored_uploaded_files:
                         mime="image/png"
                     )
         else:
-            st.warning("아직 이 페이지의 번역이 실행되지 않았습니다. 사이드바의 연쇄 번역 버튼을 눌러주세요.")
+            st.warning("아직 이 페이지의 번역이 실행되지 않았습니다. 사이드바의 [자동 번역 시작] 버튼을 눌러주세요.")
