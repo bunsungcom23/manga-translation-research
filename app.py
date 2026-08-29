@@ -189,12 +189,12 @@ if st.session_state.stored_uploaded_files:
         4. Format the output clearly, matching each bubble number or text block with its extracted original text and Korean translation.
         """
 
-        max_retries = 5
+        max_retries = 3
         for attempt in range(max_retries):
             try:
-                # 정상 작동하는 안정적인 플래시 모델명으로 교체
+                # 💡 가장 안정적이고 최신 표준인 gemini-2.5-flash 모델 적용
                 response = client_obj.models.generate_content(
-                    model='gemini-1.5-flash',
+                    model='gemini-2.5-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -206,9 +206,10 @@ if st.session_state.stored_uploaded_files:
                 return True
             except Exception as e:
                 if attempt == max_retries - 1:
+                    st.error(f"⚠️ API 상세 오류 내용: {e}")
                     return False
                 else:
-                    time.sleep(5 * (attempt + 1))
+                    time.sleep(3 * (attempt + 1))
         return False
 
     st.sidebar.markdown("---")
@@ -252,10 +253,10 @@ if st.session_state.stored_uploaded_files:
                     with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
                         success = execute_translation(target_idx, client)
                         if success:
-                            time.sleep(5)
+                            time.sleep(2)
                             st.rerun()
                         else:
-                            st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
+                            st.error(f"⚠️ [{f_name}] 번역 실패. 5초 후 자동으로 다시 시도합니다.")
                             time.sleep(5)
                             st.rerun()
 
@@ -277,7 +278,7 @@ if st.session_state.stored_uploaded_files:
                         st.success("현재 페이지 번역 완료!")
                         st.rerun()
                     else:
-                        st.error("번역 실패 (API 응답 오류)")
+                        st.error("번역 실패 (API 응답 오류 - 위의 상세 오류 메시지를 확인해주세요)")
                 except Exception as e:
                     st.error(f"오류: {e}")
 
@@ -295,7 +296,7 @@ if st.session_state.stored_uploaded_files:
                     if not success:
                         break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(5)
+                    time.sleep(2)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
