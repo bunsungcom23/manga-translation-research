@@ -12,33 +12,32 @@ import base64
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
-st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (최적화 버전)")
-st.markdown("💡 **Tip**: 폰트 깨짐 없는 **HTML 2단 표(좌측 이미지 / 우측 스크롤 가능한 텍스트)** 형태로 완벽하게 저장 및 비교할 수 있습니다.")
+st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (사용자 키 입력 모드)")
+st.markdown("💡 **Tip**: 각자 본인의 Gemini API Key를 입력하여 안전하게 사용할 수 있습니다.")
 
-api_key = ""
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-except:
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-
-if "translation_history" not in st.session_state:
-    st.session_state.translation_history = {}
-if "current_idx" not in st.session_state:
-    st.session_state.current_idx = 0
-if "stored_uploaded_files" not in st.session_state:
-    st.session_state.stored_uploaded_files = None
-if "stored_file_names" not in st.session_state:
-    st.session_state.stored_file_names = []
-if "auto_translate_running" not in st.session_state:
-    st.session_state.auto_translate_running = False
-
+# --- 🔑 사용자별 API Key 입력 시스템으로 변경 ---
 with st.sidebar:
-    st.header("⚙️ 프로젝트 & 백업 관리")
+    st.header("⚙️ 프로젝트 & API 설정")
     
-    if not api_key:
-        st.error("⚠️ 시스템에 Gemini API Key가 설정되지 않았습니다. Streamlit Secrets를 확인해주세요.")
+    # 사용자가 직접 입력할 수 있는 비밀번호 형태의 입력창 제공
+    user_api_key = st.text_input(
+        "🔑 Gemini API Key 입력", 
+        type="password", 
+        help="Google AI Studio에서 발급받은 본인의 API Key를 입력하세요."
+    )
+    
+    # 사용자가 입력했으면 그 키를 사용, 없으면 빈 값
+    if user_api_key:
+        api_key = user_api_key
+        st.success("✅ 사용자 API Key 연동 완료")
     else:
-        st.success("✅ 시스템 API Key 연동 완료")
+        # 백업용으로 secrets에 등록된 게 있다면 쓸 수도 있지만, 개별 공유를 위해 입력 유도
+        try:
+            api_key = st.secrets["GEMINI_API_KEY"]
+            st.info("ℹ️ 시스템 기본(Secrets) API Key가 감지되었습니다.")
+        except:
+            api_key = ""
+            st.warning("⚠️ 번역을 사용하려면 본인의 Gemini API Key를 입력해주세요.")
 
     volume_name = st.text_input("현재 작업 중인 권/챕터 이름", value="vol_01", help="예: vol_01, book_2 등 폴더/파일명 구분자")
     
@@ -173,7 +172,6 @@ if st.session_state.stored_uploaded_files:
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                # 💡 정상 작동하던 원래 모델명으로 원복 완료
                 response = client_obj.models.generate_content(
                     model='gemini-3.6-flash',
                     contents=[t_image, prompt]
@@ -226,7 +224,7 @@ if st.session_state.stored_uploaded_files:
 
     if st.session_state.auto_translate_running:
         if not api_key:
-            st.sidebar.error("❌ API Key가 없습니다!")
+            st.sidebar.error("❌ API Key가 입력되지 않았습니다! 사이드바에 본인의 API Key를 입력해주세요.")
             st.session_state.auto_translate_running = False
         else:
             try:
@@ -252,7 +250,7 @@ if st.session_state.stored_uploaded_files:
                             time.sleep(12)
                             st.rerun()
                         else:
-                            st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
+                            st.error(f"⚠️ [{f_name}] 번역 실패. API Key 상태를 확인하거나 잠시 후 다시 시도합니다.")
                             time.sleep(15)
                             st.rerun()
 
@@ -264,7 +262,7 @@ if st.session_state.stored_uploaded_files:
 
     if single_btn:
         if not api_key:
-            st.error("❌ API Key가 없습니다!")
+            st.error("❌ API Key가 입력되지 않았습니다! 사이드바에 본인의 API Key를 입력해주세요.")
         else:
             with st.spinner(f"[{selected_name}] 페이지 분석 및 번역 중..."):
                 try:
@@ -274,7 +272,7 @@ if st.session_state.stored_uploaded_files:
                         st.success("현재 페이지 번역 완료!")
                         st.rerun()
                     else:
-                        st.error("번역 실패 (API 응답 오류)")
+                        st.error("번역 실패 (API Key가 올바른지 또는 할당량이 초과되었는지 확인하세요)")
                 except Exception as e:
                     st.error(f"오류: {e}")
 
