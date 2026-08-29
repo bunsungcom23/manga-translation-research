@@ -318,7 +318,6 @@ if st.session_state.stored_uploaded_files:
         draw.text((margin, y_text), f"[{volume_name} - {page_name}] Translation", fill=(0, 0, 0), font=font_title)
         y_text += 35
         
-        # 💡 Pillow 기본 폰트가 표현하지 못하는 특수 기호/유니코드 오류 방지용 치환 로직
         safe_text = res_text.replace("\r\n", "\n")
         lines = safe_text.split('\n')
         
@@ -333,8 +332,18 @@ if st.session_state.stored_uploaded_files:
                 if y_text > target_height - 30:
                     break
                 
-                # Pillow 렌더링 시 처리할 수 없는 특수문자나 널 문자로 인한 이미지 생성 크래시 방지 처리
-                clean_w_line = "".join(c if ord(c) < 65536 and c not in ['\ufffd'] else '?' for c in w_line)
+                # 💡 유니코드 폰트가 지원하지 못하거나 깨지는 특수문자/이모지를 필터링하여 물음표나 안전한 문자로 변환
+                clean_w_line = ""
+                for c in w_line:
+                    code = ord(c)
+                    # 한글, 영문, 기본 구두점, 공백 영역 외에 Pillow 기본 폰트나 비정상 문자가 깨지는 것을 방지
+                    if code < 128 or (44032 <= code <= 55203) or (12593 <= code <= 12643) or (12688 <= code <= 12735):
+                        clean_w_line += c
+                    elif c in ".,!?~\"'()[]<>-_=+:/#%@*·『』「」“”‘’":
+                        clean_w_line += c
+                    else:
+                        # 폰트 깨짐 유발 가능성이 있는 기타 특수기호는 안전하게 빈 칸 또는 대체 문자로 처리
+                        clean_w_line += "?"
                 
                 draw.text((margin, y_text), clean_w_line, fill=(30, 30, 30), font=font_body)
                 y_text += 22
