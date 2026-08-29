@@ -1,6 +1,6 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
-import google.generativeai as genai
+from google import genai
 import datetime
 import time
 import io
@@ -8,7 +8,6 @@ import os
 import glob
 import re
 import zipfile
-import urllib.request
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
@@ -20,10 +19,6 @@ try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
-
-# Gemini API 설정
-if api_key:
-    genai.configure(api_key=api_key)
 
 def get_korean_font(size=14):
     font_paths = [
@@ -40,20 +35,6 @@ def get_korean_font(size=14):
                 return ImageFont.truetype(path, size)
             except:
                 continue
-                
-    try:
-        font_dir = "/tmp/fonts"
-        os.makedirs(font_dir, exist_ok=True)
-        font_path = os.path.join(font_dir, "NanumGothic.ttf")
-        
-        if not os.path.exists(font_path):
-            font_url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
-            urllib.request.urlretrieve(font_url, font_path)
-            
-        return ImageFont.truetype(font_path, size)
-    except Exception as e:
-        print(f"Font download failed: {e}")
-        
     try:
         return ImageFont.load_default()
     except:
@@ -182,14 +163,9 @@ if st.session_state.stored_uploaded_files:
 
     st.markdown("---")
 
-    def execute_translation(target_idx):
+    def execute_translation(target_idx, client_obj):
         t_name = file_names[target_idx]
-        try:
-            # PNG 투명도(RGBA)나 팔레트 오류 방지를 위해 무조건 RGB로 강제 변환
-            t_image = Image.open(uploaded_files[target_idx]).convert("RGB")
-        except Exception as img_err:
-            print(f"Image load error: {img_err}")
-            return False
+        t_image = Image.open(uploaded_files[target_idx])
         
         context_prompt = ""
         if target_idx > 0:
@@ -213,13 +189,14 @@ if st.session_state.stored_uploaded_files:
         4. Format the output clearly, matching each bubble number or text block with its extracted original text and Korean translation.
         """
 
-        max_retries = 3
+        max_retries = 5
         for attempt in range(max_retries):
             try:
-                model = genai.GenerativeModel('gemini-1.5-flash')
-                response = model.generate_content([t_image, prompt])
+                response = client_obj.models.generate_content(
+                    model='gemini-3.6-flash',
+                    contents=[t_image, prompt]
+                )
                 res_text = response.text
-                
                 st.session_state.translation_history[t_name] = res_text
                 
                 backup_filename = f"manga_backup_{volume_name}_{t_name}.txt"
@@ -227,11 +204,10 @@ if st.session_state.stored_uploaded_files:
                     bf.write(res_text)
                 return True
             except Exception as e:
-                print(f"Translation error on attempt {attempt+1}: {e}")
                 if attempt == max_retries - 1:
                     return False
                 else:
-                    time.sleep(5 * (attempt + 1))
+                    time.sleep(10 * (attempt + 1))
         return False
 
     st.sidebar.markdown("---")
@@ -251,29 +227,38 @@ if st.session_state.stored_uploaded_files:
         st.session_state.auto_translate_running = False
         st.rerun()
 
+    # 자동 릴레이 실행기 (사용자가 버튼을 누르지 않아도 번역되지 않은 다음 장을 찾아 스스로 루프를 돎)
     if st.session_state.auto_translate_running:
         if not api_key:
             st.sidebar.error("❌ API Key가 없습니다!")
             st.session_state.auto_translate_running = False
         else:
-            untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
-            
-            if not untranslated_indices:
-                st.sidebar.success("🎉 모든 페이지 번역 완료!")
-                st.session_state.auto_translate_running = False
-            else:
-                target_idx = untranslated_indices[0]
-                f_name = file_names[target_idx]
+            try:
+                client = genai.Client(api_key=api_key)
+            except Exception as init_err:
+                st.sidebar.error(f"❌ 클라이언트 초기화 오류: {init_err}")
+                client = None
+
+            if client:
+                untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
                 
-                with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
-                    success = execute_translation(target_idx)
-                    if success:
-                        time.sleep(7)  # API 부하 방지 대기 시간
-                        st.rerun()
-                    else:
-                        st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
-                        time.sleep(10)
-                        st.rerun()
+                if not untranslated_indices:
+                    st.sidebar.success("🎉 모든 페이지 번역 완료!")
+                    st.session_state.auto_translate_running = False
+                else:
+                    # 이번 턴에 한 장만 안전하게 번역하고 페이지를 자동 갱신(Rerun)하여 부하를 분산시킴
+                    target_idx = untranslated_indices[0]
+                    f_name = file_names[target_idx]
+                    
+                    with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
+                        success = execute_translation(target_idx, client)
+                        if success:
+                            time.sleep(12)  # API 부하 방지 대기 시간
+                            st.rerun()      # 스스로 새로고침하여 다음 장으로 자동 이동
+                        else:
+                            st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
+                            time.sleep(15)
+                            st.rerun()
 
     action_col1, action_col2 = st.columns(2)
     with action_col1:
@@ -287,12 +272,11 @@ if st.session_state.stored_uploaded_files:
         else:
             with st.spinner(f"[{selected_name}] 페이지 분석 및 번역 중..."):
                 try:
-                    success = execute_translation(current_idx)
+                    client = genai.Client(api_key=api_key)
+                    success = execute_translation(current_idx, client)
                     if success:
                         st.success("현재 페이지 번역 완료!")
                         st.rerun()
-                    else:
-                        st.error("번역에 실패했습니다. API 키나 네트워크 상태 또는 이미지 형식을 확인해주세요.")
                 except Exception as e:
                     st.error(f"오류: {e}")
 
@@ -303,13 +287,14 @@ if st.session_state.stored_uploaded_files:
             progress_bar = st.progress(0)
             status_text = st.empty()
             try:
+                client = genai.Client(api_key=api_key)
                 for idx in range(total_files):
                     status_text.text(f"전체 재번역 중: [{idx+1}/{total_files}] {file_names[idx]}")
-                    success = execute_translation(idx)
+                    success = execute_translation(idx, client)
                     if not success:
                         break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(7)
+                    time.sleep(15)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
