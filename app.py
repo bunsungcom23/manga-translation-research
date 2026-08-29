@@ -1,6 +1,6 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
-from google import genai
+import google.generativeai as genai
 import datetime
 import time
 import io
@@ -21,8 +21,11 @@ try:
 except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
 
+# Gemini API 설정
+if api_key:
+    genai.configure(api_key=api_key)
+
 def get_korean_font(size=14):
-    # 1. 서버에 이미 설치된 나눔고딕 등 우선 탐색
     font_paths = [
         "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
         "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
@@ -38,7 +41,6 @@ def get_korean_font(size=14):
             except:
                 continue
                 
-    # 2. 서버에 한글 폰트가 없을 경우 임시 폴더에 나눔고딕을 자동 다운로드 (Streamlit Cloud 대응)
     try:
         font_dir = "/tmp/fonts"
         os.makedirs(font_dir, exist_ok=True)
@@ -52,7 +54,6 @@ def get_korean_font(size=14):
     except Exception as e:
         print(f"Font download failed: {e}")
         
-    # 3. 최후의 보루
     try:
         return ImageFont.load_default()
     except:
@@ -181,7 +182,7 @@ if st.session_state.stored_uploaded_files:
 
     st.markdown("---")
 
-    def execute_translation(target_idx, client_obj):
+    def execute_translation(target_idx):
         t_name = file_names[target_idx]
         t_image = Image.open(uploaded_files[target_idx])
         
@@ -210,12 +211,10 @@ if st.session_state.stored_uploaded_files:
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                # 모델명을 정식 지원되는 gemini-2.0-flash로 변경
-                response = client_obj.models.generate_content(
-                    model='gemini-2.0-flash',
-                    contents=[t_image, prompt]
-                )
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content([t_image, prompt])
                 res_text = response.text
+                
                 st.session_state.translation_history[t_name] = res_text
                 
                 backup_filename = f"manga_backup_{volume_name}_{t_name}.txt"
@@ -252,31 +251,24 @@ if st.session_state.stored_uploaded_files:
             st.sidebar.error("❌ API Key가 없습니다!")
             st.session_state.auto_translate_running = False
         else:
-            try:
-                client = genai.Client(api_key=api_key)
-            except Exception as init_err:
-                st.sidebar.error(f"❌ 클라이언트 초기화 오류: {init_err}")
-                client = None
-
-            if client:
-                untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
+            untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
+            
+            if not untranslated_indices:
+                st.sidebar.success("🎉 모든 페이지 번역 완료!")
+                st.session_state.auto_translate_running = False
+            else:
+                target_idx = untranslated_indices[0]
+                f_name = file_names[target_idx]
                 
-                if not untranslated_indices:
-                    st.sidebar.success("🎉 모든 페이지 번역 완료!")
-                    st.session_state.auto_translate_running = False
-                else:
-                    target_idx = untranslated_indices[0]
-                    f_name = file_names[target_idx]
-                    
-                    with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
-                        success = execute_translation(target_idx, client)
-                        if success:
-                            time.sleep(12)  # API 부하 방지 대기 시간
-                            st.rerun()
-                        else:
-                            st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
-                            time.sleep(15)
-                            st.rerun()
+                with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
+                    success = execute_translation(target_idx)
+                    if success:
+                        time.sleep(10)  # API 부하 방지 대기 시간
+                        st.rerun()
+                    else:
+                        st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
+                        time.sleep(15)
+                        st.rerun()
 
     action_col1, action_col2 = st.columns(2)
     with action_col1:
@@ -290,8 +282,7 @@ if st.session_state.stored_uploaded_files:
         else:
             with st.spinner(f"[{selected_name}] 페이지 분석 및 번역 중..."):
                 try:
-                    client = genai.Client(api_key=api_key)
-                    success = execute_translation(current_idx, client)
+                    success = execute_translation(current_idx)
                     if success:
                         st.success("현재 페이지 번역 완료!")
                         st.rerun()
@@ -307,14 +298,13 @@ if st.session_state.stored_uploaded_files:
             progress_bar = st.progress(0)
             status_text = st.empty()
             try:
-                client = genai.Client(api_key=api_key)
                 for idx in range(total_files):
                     status_text.text(f"전체 재번역 중: [{idx+1}/{total_files}] {file_names[idx]}")
-                    success = execute_translation(idx, client)
+                    success = execute_translation(idx)
                     if not success:
                         break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(15)
+                    time.sleep(10)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
@@ -429,7 +419,7 @@ if st.session_state.stored_uploaded_files:
             st.markdown("---")
             if st.button("🖼️ 원본+번역 결과를 이미지(PNG)로 병합 저장"):
                 with st.spinner("이미지 생성 중..."):
-                    combined_image = create_merged_image(selected_selected_file if 'selected_selected_file' in locals() else selected_file, result_text, selected_name)
+                    combined_image = create_merged_image(selected_file, result_text, selected_name)
                     buf = io.BytesIO()
                     combined_image.save(buf, format="PNG")
                     byte_im = buf.getvalue()
