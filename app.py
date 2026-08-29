@@ -1,9 +1,19 @@
 import streamlit as st
+from PIL import Image
+from google import genai
+import datetime
+import time
+import io
+import os
+import glob
+import re
+import zipfile
+import base64
 
 st.set_page_config(page_title="프라이빗 만화 번역 연구 툴", layout="wide")
 
 # ==========================================
-# 🔐 접속 비밀번호 확인 로직 (이 부분만 추가)
+# 🔐 접속 비밀번호 확인 로직 (보안 장치)
 # ==========================================
 def check_password():
     def password_entered():
@@ -16,6 +26,7 @@ def check_password():
 
     if "password_correct" not in st.session_state:
         st.subheader("🔒 프라이빗 연구실 전용 번역 툴")
+        st.write("접속 권한이 있는 연구원 및 동료만 이용할 수 있습니다.")
         st.text_input("접속 비밀번호를 입력하세요", type="password", on_change=password_entered, key="password_input")
         return False
     elif not st.session_state["password_correct"]:
@@ -30,23 +41,8 @@ if not check_password():
     st.stop()
 # ==========================================
 
-# 👇 이 아래부터는 기존에 작성하셨던 원래의 툴 전체 코드가 그대로 이어지면 됩니다!
-import streamlit as st
-from PIL import Image
-from google import genai
-import datetime
-import time
-import io
-import os
-import glob
-import re
-import zipfile
-import base64
-
-st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
-
 # ==========================================
-# 🛠️ [핵심 수정] 세션 상태 초기화를 가장 최상단으로 이동
+# 🛠️ 세션 상태 초기화
 # ==========================================
 if "translation_history" not in st.session_state:
     st.session_state.translation_history = {}
@@ -66,14 +62,12 @@ st.markdown("💡 **Tip**: 각자 본인의 Gemini API Key를 입력하여 안�
 with st.sidebar:
     st.header("⚙️ 프로젝트 & API 설정")
     
-    # 사용자가 직접 입력하는 비밀번호 형태의 입력창
     user_api_key = st.text_input(
         "🔑 Gemini API Key 입력", 
         type="password", 
         help="Google AI Studio에서 발급받은 본인의 API Key를 입력하세요."
     )
     
-    # 입력된 키 사용, 없으면 빈 값
     if user_api_key:
         api_key = user_api_key
         st.success("✅ 사용자 API Key 연동 완료")
@@ -219,7 +213,7 @@ if st.session_state.stored_uploaded_files:
         for attempt in range(max_retries):
             try:
                 response = client_obj.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model='gemini-2.5-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
