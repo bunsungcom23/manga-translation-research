@@ -12,8 +12,8 @@ import base64
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
-st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (2단 표 비교 모드)")
-st.markdown("💡 **Tip**: 폰트 깨짐 없는 **HTML 2단 표(좌측 이미지 / 우측 텍스트·번역)** 형태로 완벽하게 저장 및 비교할 수 있습니다.")
+st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (최적화 버전)")
+st.markdown("💡 **Tip**: 폰트 깨짐 없는 **HTML 2단 표(좌측 이미지 / 우측 스크롤 가능한 텍스트)** 형태로 완벽하게 저장 및 비교할 수 있습니다.")
 
 api_key = ""
 try:
@@ -174,7 +174,7 @@ if st.session_state.stored_uploaded_files:
         for attempt in range(max_retries):
             try:
                 response = client_obj.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model='gemini-2.5-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -208,6 +208,23 @@ if st.session_state.stored_uploaded_files:
         st.session_state.auto_translate_running = False
         st.rerun()
 
+    # 실시간 진행 상황 UI 영역
+    untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
+    completed_count = total_files - len(untranslated_indices)
+    
+    st.sidebar.markdown("### 📊 진행 현황")
+    progress_val = completed_count / total_files if total_files > 0 else 0
+    st.sidebar.progress(progress_val)
+    st.sidebar.text(f"완료: {completed_count} / {total_files} 페이지 ({int(progress_val * 100)}%)")
+    
+    if st.session_state.auto_translate_running and len(untranslated_indices) > 0:
+        # 남은 예상 시간 계산 (페이지당 약 90초 기준 추정)
+        remaining_pages = len(untranslated_indices)
+        est_seconds = remaining_pages * 90
+        est_min = est_seconds // 60
+        est_sec = est_seconds % 60
+        st.sidebar.info(f"⏳ 남은 예상 시간: 약 {est_min}분 {est_sec}초")
+
     if st.session_state.auto_translate_running:
         if not api_key:
             st.sidebar.error("❌ API Key가 없습니다!")
@@ -220,16 +237,18 @@ if st.session_state.stored_uploaded_files:
                 client = None
 
             if client:
-                untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
+                # 이어하기 로직: 아직 번역되지 않은 첫 번째 페이지를 자동으로 타겟팅
+                current_untranslated = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
                 
-                if not untranslated_indices:
+                if not current_untranslated:
                     st.sidebar.success("🎉 모든 페이지 번역 완료!")
                     st.session_state.auto_translate_running = False
+                    st.rerun()
                 else:
-                    target_idx = untranslated_indices[0]
+                    target_idx = current_untranslated[0]
                     f_name = file_names[target_idx]
                     
-                    with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
+                    with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(current_untranslated)}장)"):
                         success = execute_translation(target_idx, client)
                         if success:
                             time.sleep(12)
@@ -239,11 +258,12 @@ if st.session_state.stored_uploaded_files:
                             time.sleep(15)
                             st.rerun()
 
-    action_col1, action_col2 = st.columns(2)
+    action_col1, action_col2 = st.columns([1, 1])
     with action_col1:
         single_btn = st.button("🤖 현재 선택된 페이지만 번역", use_container_width=True)
     with action_col2:
-        batch_btn = st.button("⚡ 전체 강제 재번역(주의)", use_container_width=True)
+        # 빈 자리를 맞추거나 여백용 (전체 강제 재번역 버튼 제거됨)
+        st.empty()
 
     if single_btn:
         if not api_key:
@@ -261,26 +281,6 @@ if st.session_state.stored_uploaded_files:
                 except Exception as e:
                     st.error(f"오류: {e}")
 
-    if batch_btn:
-        if not api_key:
-            st.error("❌ API Key가 없습니다!")
-        else:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            try:
-                client = genai.Client(api_key=api_key)
-                for idx in range(total_files):
-                    status_text.text(f"전체 재번역 중: [{idx+1}/{total_files}] {file_names[idx]}")
-                    success = execute_translation(idx, client)
-                    if not success:
-                        break
-                    progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(15)
-                st.success("전체 강제 재번역 완료!")
-                st.rerun()
-            except Exception as e:
-                st.error(f"오류: {e}")
-
     st.markdown("---")
 
     def create_html_report(img_file, res_text, page_name):
@@ -290,6 +290,7 @@ if st.session_state.stored_uploaded_files:
         
         formatted_text = res_text.replace("\n", "<br>")
         
+        # HTML 내부에도 스크롤 박스 및 좌우 대칭 레이아웃 적용
         html_content = f"""
         <!DOCTYPE html>
         <html lang="ko">
@@ -299,11 +300,12 @@ if st.session_state.stored_uploaded_files:
             <style>
                 body {{ font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; margin: 20px; background-color: #f4f6f9; }}
                 h1 {{ text-align: center; color: #333; }}
-                .container {{ display: flex; flex-direction: row; gap: 20px; max-width: 1300px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
-                .pane {{ flex: 1; padding: 15px; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; }}
+                .container {{ display: flex; flex-direction: row; gap: 20px; max-width: 1400px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
+                .pane {{ flex: 1; padding: 15px; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; display: flex; flex-direction: column; }}
                 .pane h3 {{ margin-top: 0; color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 8px; }}
-                .img-wrapper {{ text-align: center; }}
+                .img-wrapper {{ text-align: center; overflow-y: auto; max-height: 750px; }}
                 .img-wrapper img {{ max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 4px; }}
+                .text-scroll-box {{ max-height: 750px; overflow-y: auto; padding: 10px; border: 1px solid #e0e0e0; border-radius: 6px; background-color: #ffffff; }}
                 .text-content {{ white-space: pre-wrap; font-size: 15px; line-height: 1.6; color: #222; }}
             </style>
         </head>
@@ -318,7 +320,9 @@ if st.session_state.stored_uploaded_files:
                 </div>
                 <div class="pane">
                     <h3>🇰🇷 원본 텍스트 추출 및 번역 결과</h3>
-                    <div class="text-content">{formatted_text}</div>
+                    <div class="text-scroll-box">
+                        <div class="text-content">{formatted_text}</div>
+                    </div>
                 </div>
             </div>
         </body>
@@ -396,7 +400,7 @@ if st.session_state.stored_uploaded_files:
                     label="💾 HTML 보고서 파일 저장",
                     data=html_data,
                     file_name=f"{volume_name}_compare_{selected_name}.html",
-                    mime="text/html"
+                    mime="application/html"
                 )
         else:
             st.warning("아직 이 페이지의 번역이 실행되지 않았습니다. 사이드바의 [자동 번역 시작] 버튼을 눌러주세요.")
