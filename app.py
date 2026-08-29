@@ -210,8 +210,9 @@ if st.session_state.stored_uploaded_files:
         max_retries = 5
         for attempt in range(max_retries):
             try:
+                # 모델명을 정식 지원되는 gemini-2.0-flash로 변경
                 response = client_obj.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-2.0-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -222,6 +223,7 @@ if st.session_state.stored_uploaded_files:
                     bf.write(res_text)
                 return True
             except Exception as e:
+                print(f"Translation error on attempt {attempt+1}: {e}")
                 if attempt == max_retries - 1:
                     return False
                 else:
@@ -293,6 +295,8 @@ if st.session_state.stored_uploaded_files:
                     if success:
                         st.success("현재 페이지 번역 완료!")
                         st.rerun()
+                    else:
+                        st.error("번역에 실패했습니다. API 키나 네트워크 상태를 확인해주세요.")
                 except Exception as e:
                     st.error(f"오류: {e}")
 
@@ -425,7 +429,7 @@ if st.session_state.stored_uploaded_files:
             st.markdown("---")
             if st.button("🖼️ 원본+번역 결과를 이미지(PNG)로 병합 저장"):
                 with st.spinner("이미지 생성 중..."):
-                    combined_image = create_merged_image(selected_file, result_text, selected_name)
+                    combined_image = create_merged_image(selected_selected_file if 'selected_selected_file' in locals() else selected_file, result_text, selected_name)
                     buf = io.BytesIO()
                     combined_image.save(buf, format="PNG")
                     byte_im = buf.getvalue()
