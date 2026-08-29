@@ -12,7 +12,7 @@ import zipfile
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
 st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템")
-st.markdown("💡 **Tip**: 연구자 및 일반 독자들이 튕김 없이 번역을 비교할 수 있도록 **페이지별 실시간 백업 및 중단 지점 이어하기(Resume)** 기능이 탑재되어 있습니다.")
+st.markdown("💡 **Tip**: 연구자 및 일반 독자들이 안정적으로 번역을 비교할 수 있도록 **타임아웃 방지 대기 시간 연장 및 한글 폰트 드로잉 최적화**가 적용되었습니다.")
 
 # Streamlit Cloud의 Secrets에서 API 키를 안전하게 자동 로드
 api_key = ""
@@ -33,6 +33,7 @@ def get_korean_font(size=14):
                 return ImageFont.truetype(path, size)
             except:
                 continue
+    # 시스템에 폰트가 없을 경우 기본 폰트 반환 경고
     return ImageFont.load_default()
 
 # 세션 상태 초기화
@@ -202,7 +203,7 @@ if st.session_state.stored_uploaded_files:
                     st.error(f"⚠️ [{t_name}] 번역 실패 상세 에러: {e}")
                     return False
                 else:
-                    time.sleep(5 * (attempt + 1))
+                    time.sleep(8 * (attempt + 1))
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🛡️ 대규모 연쇄 번역 (이어하기 지원)")
@@ -241,7 +242,8 @@ if st.session_state.stored_uploaded_files:
                         completed += 1
                         progress_bar.progress(completed / total_to_do)
                         
-                        time.sleep(12)
+                        # API 과부하 및 속도 제한(Rate Limit)을 안전하게 피하기 위해 지연 시간을 25초로 대폭 늘림
+                        time.sleep(25)
                     
                     status_text.text("✨ 이번 연쇄 번역 작업 구간이 완료되었습니다!")
                     st.success("🎉 번역 데이터가 백업 파일로 안전하게 저장되었습니다!")
@@ -281,7 +283,7 @@ if st.session_state.stored_uploaded_files:
                     if not success:
                         break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(12)
+                    time.sleep(25)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
@@ -316,7 +318,7 @@ if st.session_state.stored_uploaded_files:
             for w_line in wrapped_line:
                 if y_text > target_height - 30:
                     break
-                draw.text((margin, y_text), w_line, fill=(30, 30, 30), font=font_body)
+                draw.text((margin, y_text), w_line, fill=(30, 30, 30), font=font_body, encoding="utf-8")
                 y_text += 22
             y_text += 4
 
