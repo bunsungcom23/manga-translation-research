@@ -62,12 +62,14 @@ st.markdown("💡 **Tip**: 각자 본인의 Gemini API Key를 입력하여 안�
 with st.sidebar:
     st.header("⚙️ 프로젝트 & API 설정")
     
+    # 사용자가 직접 입력하는 비밀번호 형태의 입력창
     user_api_key = st.text_input(
         "🔑 Gemini API Key 입력", 
         type="password", 
         help="Google AI Studio에서 발급받은 본인의 API Key를 입력하세요."
     )
     
+    # 입력된 키 사용, 없으면 빈 값
     if user_api_key:
         api_key = user_api_key
         st.success("✅ 사용자 API Key 연동 완료")
@@ -213,7 +215,7 @@ if st.session_state.stored_uploaded_files:
         for attempt in range(max_retries):
             try:
                 response = client_obj.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3.6-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -437,4 +439,4 @@ if st.session_state.stored_uploaded_files:
                     mime="application/html"
                 )
         else:
-            st.warning("아직 이 페이지의 번역이 실행되지 않았습니다. 사이드바의 [자동 번역 시작] 버튼을 눌러주세요.")
+            st.warning("아직 이 페이지의 번역이 실행되지 않았습니
