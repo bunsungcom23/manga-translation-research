@@ -12,26 +12,39 @@ import base64
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
+# ==========================================
+# 🛠️ [핵심 수정] 세션 상태 초기화를 가장 최상단으로 이동
+# ==========================================
+if "translation_history" not in st.session_state:
+    st.session_state.translation_history = {}
+if "current_idx" not in st.session_state:
+    st.session_state.current_idx = 0
+if "stored_uploaded_files" not in st.session_state:
+    st.session_state.stored_uploaded_files = None
+if "stored_file_names" not in st.session_state:
+    st.session_state.stored_file_names = []
+if "auto_translate_running" not in st.session_state:
+    st.session_state.auto_translate_running = False
+
 st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (사용자 키 입력 모드)")
 st.markdown("💡 **Tip**: 각자 본인의 Gemini API Key를 입력하여 안전하게 사용할 수 있습니다.")
 
-# --- 🔑 사용자별 API Key 입력 시스템으로 변경 ---
+# --- 🔑 사용자별 API Key 입력 시스템 ---
 with st.sidebar:
     st.header("⚙️ 프로젝트 & API 설정")
     
-    # 사용자가 직접 입력할 수 있는 비밀번호 형태의 입력창 제공
+    # 사용자가 직접 입력하는 비밀번호 형태의 입력창
     user_api_key = st.text_input(
         "🔑 Gemini API Key 입력", 
         type="password", 
         help="Google AI Studio에서 발급받은 본인의 API Key를 입력하세요."
     )
     
-    # 사용자가 입력했으면 그 키를 사용, 없으면 빈 값
+    # 입력된 키 사용, 없으면 빈 값
     if user_api_key:
         api_key = user_api_key
         st.success("✅ 사용자 API Key 연동 완료")
     else:
-        # 백업용으로 secrets에 등록된 게 있다면 쓸 수도 있지만, 개별 공유를 위해 입력 유도
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
             st.info("ℹ️ 시스템 기본(Secrets) API Key가 감지되었습니다.")
