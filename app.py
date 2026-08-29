@@ -1,4 +1,37 @@
 import streamlit as st
+
+st.set_page_config(page_title="프라이빗 만화 번역 연구 툴", layout="wide")
+
+# ==========================================
+# 🔐 접속 비밀번호 확인 로직 (이 부분만 추가)
+# ==========================================
+def check_password():
+    def password_entered():
+        correct_pw = st.secrets.get("APP_PASSWORD", "manga_research_2026!")
+        if st.session_state["password_input"] == correct_pw:
+            st.session_state["password_correct"] = True
+            del st.session_state["password_input"]
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        st.subheader("🔒 프라이빗 연구실 전용 번역 툴")
+        st.text_input("접속 비밀번호를 입력하세요", type="password", on_change=password_entered, key="password_input")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.subheader("🔒 프라이빗 연구실 전용 번역 툴")
+        st.text_input("접속 비밀번호를 입력하세요", type="password", on_change=password_entered, key="password_input")
+        st.error("❌ 비밀번호가 올바르지 않습니다.")
+        return False
+    else:
+        return True
+
+if not check_password():
+    st.stop()
+# ==========================================
+
+# 👇 이 아래부터는 기존에 작성하셨던 원래의 툴 전체 코드가 그대로 이어지면 됩니다!
+import streamlit as st
 from PIL import Image
 from google import genai
 import datetime
