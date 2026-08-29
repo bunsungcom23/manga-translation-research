@@ -8,6 +8,7 @@ import os
 import glob
 import re
 import zipfile
+import urllib.request
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
@@ -21,6 +22,7 @@ except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
 
 def get_korean_font(size=14):
+    # 1. 서버에 이미 설치된 나눔고딕 등 우선 탐색
     font_paths = [
         "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
         "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
@@ -35,6 +37,22 @@ def get_korean_font(size=14):
                 return ImageFont.truetype(path, size)
             except:
                 continue
+                
+    # 2. 서버에 한글 폰트가 없을 경우 임시 폴더에 나눔고딕을 자동 다운로드 (Streamlit Cloud 대응)
+    try:
+        font_dir = "/tmp/fonts"
+        os.makedirs(font_dir, exist_ok=True)
+        font_path = os.path.join(font_dir, "NanumGothic.ttf")
+        
+        if not os.path.exists(font_path):
+            font_url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+            urllib.request.urlretrieve(font_url, font_path)
+            
+        return ImageFont.truetype(font_path, size)
+    except Exception as e:
+        print(f"Font download failed: {e}")
+        
+    # 3. 최후의 보루
     try:
         return ImageFont.load_default()
     except:
@@ -193,7 +211,7 @@ if st.session_state.stored_uploaded_files:
         for attempt in range(max_retries):
             try:
                 response = client_obj.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model='gemini-2.5-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -227,7 +245,6 @@ if st.session_state.stored_uploaded_files:
         st.session_state.auto_translate_running = False
         st.rerun()
 
-    # 자동 릴레이 실행기 (사용자가 버튼을 누르지 않아도 번역되지 않은 다음 장을 찾아 스스로 루프를 돎)
     if st.session_state.auto_translate_running:
         if not api_key:
             st.sidebar.error("❌ API Key가 없습니다!")
@@ -246,7 +263,6 @@ if st.session_state.stored_uploaded_files:
                     st.sidebar.success("🎉 모든 페이지 번역 완료!")
                     st.session_state.auto_translate_running = False
                 else:
-                    # 이번 턴에 한 장만 안전하게 번역하고 페이지를 자동 갱신(Rerun)하여 부하를 분산시킴
                     target_idx = untranslated_indices[0]
                     f_name = file_names[target_idx]
                     
@@ -254,7 +270,7 @@ if st.session_state.stored_uploaded_files:
                         success = execute_translation(target_idx, client)
                         if success:
                             time.sleep(12)  # API 부하 방지 대기 시간
-                            st.rerun()      # 스스로 새로고침하여 다음 장으로 자동 이동
+                            st.rerun()
                         else:
                             st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
                             time.sleep(15)
