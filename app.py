@@ -8,7 +8,6 @@ import os
 import glob
 import re
 import zipfile
-import urllib.request
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
@@ -21,44 +20,23 @@ try:
 except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
 
-# 🛠️ 한글 폰트 자동 다운로드 및 설정 (특수기호 및 한글 깨짐 방지)
-@st.cache_resource
-def setup_korean_font():
-    font_path = "NanumGothic.ttf"
-    if not os.path.exists(font_path):
-        try:
-            # 나눔고딕 폰트 무료 다운로드 URL
-            url = "https://github.googlecode.com/svn/trunk/fonts/NanumGothic.ttf" # 백업용 혹은 공공 폰트 링크
-            # 안정적인 구글 폰트 저장소 링크 활용
-            url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
-            urllib.request.urlretrieve(url, font_path)
-        except Exception:
-            pass
-            
+# 🛠️ 안전한 한글 폰트 로드 함수 (네트워크 다운로드 방식 제거로 멈춤 현상 원천 차단)
+def get_korean_font(size=14):
     font_paths = [
-        font_path,
         "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
         "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "C:/Windows/Fonts/malgun.ttf",
         "C:/Windows/Fonts/gulim.ttc"
     ]
     for path in font_paths:
         if os.path.exists(path):
             try:
-                # 테스트 로드
-                return path
+                return ImageFont.truetype(path, size)
             except:
                 continue
-    return None
-
-def get_korean_font(size=14):
-    path = setup_korean_font()
-    if path and os.path.exists(path):
-        try:
-            return ImageFont.truetype(path, size)
-        except:
-            pass
     try:
         return ImageFont.load_default()
     except:
@@ -324,7 +302,7 @@ if st.session_state.stored_uploaded_files:
 
     st.markdown("---")
 
-    # 🛠️ 이미지 병합 함수 수정 (마크다운 특수기호 정제 및 올바른 폰트 적용)
+    # 이미지 병합 함수 (마크다운 기호 제거 및 안전한 폰트 로드 적용)
     def create_merged_image(img_file, res_text, page_name):
         base_img = Image.open(img_file).convert("RGB")
         target_height = base_img.height
@@ -341,7 +319,7 @@ if st.session_state.stored_uploaded_files:
         draw.text((margin, y_text), f"[{volume_name} - {page_name}] Translation", fill=(0, 0, 0), font=font_title)
         y_text += 35
         
-        # 번역 텍스트 내 불필요한 마크다운 서식 문자(*, #, 백틱 등) 정제
+        # 마크다운 특수기호 정제
         cleaned_text = re.sub(r'[*#_`]', '', res_text)
         lines = cleaned_text.split('\n')
         
