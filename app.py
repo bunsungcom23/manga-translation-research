@@ -1,5 +1,5 @@
 import streamlit as st
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 from google import genai
 import datetime
 import time
@@ -8,37 +8,18 @@ import os
 import glob
 import re
 import zipfile
+import base64
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
-st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (자동 릴레이 모드)")
-st.markdown("💡 **Tip**: 이미지를 올리면 **버튼을 누를 필요 없이 미번역 페이지가 자동으로 연쇄 번역**되며, 끊기더라도 스스로 이어달립니다.")
+st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (2단 표 비교 모드)")
+st.markdown("💡 **Tip**: 폰트 깨짐 없는 **HTML 2단 표(좌측 이미지 / 우측 텍스트·번역)** 형태로 완벽하게 저장 및 비교할 수 있습니다.")
 
 api_key = ""
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
-
-def get_korean_font(size=14):
-    font_paths = [
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "C:/Windows/Fonts/malgun.ttf",
-        "C:/Windows/Fonts/gulim.ttc"
-    ]
-    for path in font_paths:
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size)
-            except:
-                continue
-    try:
-        return ImageFont.load_default()
-    except:
-        return None
 
 if "translation_history" not in st.session_state:
     st.session_state.translation_history = {}
@@ -302,84 +283,68 @@ if st.session_state.stored_uploaded_files:
 
     st.markdown("---")
 
-    def create_merged_image(img_file, res_text, page_name):
-        base_img = Image.open(img_file).convert("RGB")
-        target_height = base_img.height
+    def create_html_report(img_file, res_text, page_name):
+        img_file.seek(0)
+        img_bytes = img_file.read()
+        encoded_img = base64.b64encode(img_bytes).decode("utf-8")
         
-        panel_width = 650
-        panel = Image.new("RGB", (panel_width, target_height), (255, 255, 255))
-        draw = ImageDraw.Draw(panel)
+        formatted_text = res_text.replace("\n", "<br>")
         
-        font_title = get_korean_font(16)
-        font_body = get_korean_font(13)
-        
-        margin = 20
-        y_text = margin
-        draw.text((margin, y_text), f"[{volume_name} - {page_name}] Translation", fill=(0, 0, 0), font=font_title)
-        y_text += 35
-        
-        safe_text = res_text.replace("\r\n", "\n")
-        lines = safe_text.split('\n')
-        
-        for line in lines:
-            if y_text > target_height - 40:
-                draw.text((margin, y_text), "... (내용 생략됨)", fill=(100, 100, 100), font=font_body)
-                break
-            
-            max_chars = 40
-            wrapped_line = [line[i:i+max_chars] for i in range(0, len(line), max_chars)] if len(line) > max_chars else [line]
-            for w_line in wrapped_line:
-                if y_text > target_height - 30:
-                    break
-                
-                # 💡 유니코드 폰트가 지원하지 못하거나 깨지는 특수문자/이모지를 필터링하여 물음표나 안전한 문자로 변환
-                clean_w_line = ""
-                for c in w_line:
-                    code = ord(c)
-                    # 한글, 영문, 기본 구두점, 공백 영역 외에 Pillow 기본 폰트나 비정상 문자가 깨지는 것을 방지
-                    if code < 128 or (44032 <= code <= 55203) or (12593 <= code <= 12643) or (12688 <= code <= 12735):
-                        clean_w_line += c
-                    elif c in ".,!?~\"'()[]<>-_=+:/#%@*·『』「」“”‘’":
-                        clean_w_line += c
-                    else:
-                        # 폰트 깨짐 유발 가능성이 있는 기타 특수기호는 안전하게 빈 칸 또는 대체 문자로 처리
-                        clean_w_line += "?"
-                
-                draw.text((margin, y_text), clean_w_line, fill=(30, 30, 30), font=font_body)
-                y_text += 22
-            y_text += 4
-
-        total_width = base_img.width + panel.width
-        combined_image = Image.new("RGB", (total_width, target_height))
-        combined_image.paste(base_img, (0, 0))
-        combined_image.paste(panel, (base_img.width, 0))
-        return combined_image
+        html_content = f"""
+        <!DOCTYPE html>
+        <html lang="ko">
+        <head>
+            <meta charset="UTF-8">
+            <title>{volume_name} - {page_name} 2단 비교 보고서</title>
+            <style>
+                body {{ font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; margin: 20px; background-color: #f4f6f9; }}
+                h1 {{ text-align: center; color: #333; }}
+                .container {{ display: flex; flex-direction: row; gap: 20px; max-width: 1300px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }}
+                .pane {{ flex: 1; padding: 15px; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; }}
+                .pane h3 {{ margin-top: 0; color: #0056b3; border-bottom: 2px solid #0056b3; padding-bottom: 8px; }}
+                .img-wrapper {{ text-align: center; }}
+                .img-wrapper img {{ max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 4px; }}
+                .text-content {{ white-space: pre-wrap; font-size: 15px; line-height: 1.6; color: #222; }}
+            </style>
+        </head>
+        <body>
+            <h1>[{volume_name}] 만화 판본 2단 비교 보고서 ({page_name})</h1>
+            <div class="container">
+                <div class="pane">
+                    <h3>🖼️ 원본 만화 페이지</h3>
+                    <div class="img-wrapper">
+                        <img src="data:image/png;base64,{encoded_img}" alt="{page_name}">
+                    </div>
+                </div>
+                <div class="pane">
+                    <h3>🇰🇷 원본 텍스트 추출 및 번역 결과</h3>
+                    <div class="text-content">{formatted_text}</div>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return html_content
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📦 병합 이미지 ZIP 저장")
+    st.sidebar.subheader("📦 2단 비교 HTML 파일 ZIP 저장")
     if st.session_state.translation_history:
-        if st.sidebar.button(f"🖼️ [{volume_name}] 모든 병합 이미지 ZIP 생성"):
-            with st.spinner("대규모 이미지 생성 및 압축 중..."):
+        if st.sidebar.button(f"🌐 [{volume_name}] 전체 2단 비교 HTML ZIP 생성"):
+            with st.spinner("HTML 2단 비교 문서 압축 중..."):
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                     for idx, file_obj in enumerate(uploaded_files):
                         f_name = file_names[idx]
                         if f_name in st.session_state.translation_history:
                             res_text = st.session_state.translation_history[f_name]
-                            file_obj.seek(0)
-                            merged_img = create_merged_image(file_obj, res_text, f_name)
-                            
-                            img_byte_arr = io.BytesIO()
-                            merged_img.save(img_byte_arr, format="PNG")
-                            img_byte_arr.seek(0)
-                            
-                            zip_file.writestr(f"{volume_name}_merged_{f_name}.png", img_byte_arr.getvalue())
+                            html_str = create_html_report(file_obj, res_text, f_name)
+                            zip_file.writestr(f"{volume_name}_compare_{f_name}.html", html_str.encode("utf-8"))
                 
                 zip_buffer.seek(0)
                 st.sidebar.download_button(
-                    label="📥 ZIP 파일 다운로드",
+                    label="📥 HTML ZIP 다운로드",
                     data=zip_buffer,
-                    file_name=f"{volume_name}_merged_images_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                    file_name=f"{volume_name}_html_reports_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
                     mime="application/zip"
                 )
     else:
@@ -392,7 +357,7 @@ if st.session_state.stored_uploaded_files:
         st.image(image, use_container_width=True)
 
     with col2:
-        st.subheader("🇰🇷 원본 글자 추출 및 맥락 연동 번역 결과")
+        st.subheader("🇰🇷 원본 글자 추출 및 맥락 연동 번역 결과 (2단 뷰)")
         
         st.markdown(
             """
@@ -424,19 +389,14 @@ if st.session_state.stored_uploaded_files:
             )
             
             st.markdown("---")
-            if st.button("🖼️ 원본+번역 결과를 이미지(PNG)로 병합 저장"):
-                with st.spinner("이미지 생성 중..."):
-                    selected_file.seek(0)
-                    combined_image = create_merged_image(selected_file, result_text, selected_name)
-                    buf = io.BytesIO()
-                    combined_image.save(buf, format="PNG")
-                    byte_im = buf.getvalue()
-                    
-                    st.download_button(
-                        label="💾 병합된 이미지 최종 다운로드",
-                        data=byte_im,
-                        file_name=f"{volume_name}_merged_{selected_name}.png",
-                        mime="image/png"
-                    )
+            if st.button("🌐 이 페이지의 2단 비교 HTML 보고서 다운로드"):
+                selected_file.seek(0)
+                html_data = create_html_report(selected_file, result_text, selected_name)
+                st.download_button(
+                    label="💾 HTML 보고서 파일 저장",
+                    data=html_data,
+                    file_name=f"{volume_name}_compare_{selected_name}.html",
+                    mime="text/html"
+                )
         else:
             st.warning("아직 이 페이지의 번역이 실행되지 않았습니다. 사이드바의 [자동 번역 시작] 버튼을 눌러주세요.")
