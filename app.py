@@ -187,7 +187,7 @@ if st.session_state.stored_uploaded_files:
         for attempt in range(max_retries):
             try:
                 response = client_obj.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3.6-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -241,7 +241,6 @@ if st.session_state.stored_uploaded_files:
                         completed += 1
                         progress_bar.progress(completed / total_to_do)
                         
-                        # API 과부하 및 타임아웃 방지를 위해 대기 시간을 12초로 넉넉하게 확장
                         time.sleep(12)
                     
                     status_text.text("✨ 이번 연쇄 번역 작업 구간이 완료되었습니다!")
