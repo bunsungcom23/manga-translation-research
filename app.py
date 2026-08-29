@@ -439,4 +439,4 @@ if st.session_state.stored_uploaded_files:
                     mime="application/html"
                 )
         else:
-            st.warning("아직 이 페이지의 번역이 실행되지 않았습니
+            st.warning("아직 이 페이지의 번역이 실행되지 않았습니다. 사이드바의 [자동 번역 시작] 버튼을 눌러주세요.")
