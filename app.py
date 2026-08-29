@@ -183,12 +183,11 @@ if st.session_state.stored_uploaded_files:
         4. Format the output clearly, matching each bubble number or text block with its extracted original text and Korean translation.
         """
 
-        # 재시도 횟수를 늘려 일시적 과부하/속도 제한 방어
         max_retries = 5
         for attempt in range(max_retries):
             try:
                 response = client_obj.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model='gemini-2.5-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -203,8 +202,7 @@ if st.session_state.stored_uploaded_files:
                     st.error(f"⚠️ [{t_name}] 번역 실패 상세 에러: {e}")
                     return False
                 else:
-                    # 재시도 전 대기 시간 점진적 증가 (백오프)
-                    time.sleep(3 * (attempt + 1))
+                    time.sleep(5 * (attempt + 1))
 
     st.sidebar.markdown("---")
     st.sidebar.subheader("🛡️ 대규모 연쇄 번역 (이어하기 지원)")
@@ -243,8 +241,8 @@ if st.session_state.stored_uploaded_files:
                         completed += 1
                         progress_bar.progress(completed / total_to_do)
                         
-                        # 💡 핵심 수정: 페이지 요청 사이에 4초의 여유를 주어 API 속도 제한(Rate Limit) 회피
-                        time.sleep(4)
+                        # API 과부하 및 타임아웃 방지를 위해 대기 시간을 12초로 넉넉하게 확장
+                        time.sleep(12)
                     
                     status_text.text("✨ 이번 연쇄 번역 작업 구간이 완료되었습니다!")
                     st.success("🎉 번역 데이터가 백업 파일로 안전하게 저장되었습니다!")
@@ -284,7 +282,7 @@ if st.session_state.stored_uploaded_files:
                     if not success:
                         break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(4) # 일괄 재번역 시에도 4초 간격 부여
+                    time.sleep(12)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
