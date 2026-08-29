@@ -192,9 +192,9 @@ if st.session_state.stored_uploaded_files:
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                # 💡 가장 안정적이고 최신 표준인 gemini-2.5-flash 모델 적용
+                # 💡 구글 최신 표준 모델인 gemini-3.6-flash 적용
                 response = client_obj.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3.6-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
