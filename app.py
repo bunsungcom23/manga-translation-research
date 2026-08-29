@@ -1,6 +1,6 @@
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont
-from google import genai
+import google.generativeai as genai
 import datetime
 import time
 import io
@@ -11,8 +11,8 @@ import zipfile
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
-st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (자동 릴레이 모드)")
-st.markdown("💡 **Tip**: 이미지를 올리면 **버튼을 누를 필요 없이 미번역 페이지가 자동으로 연쇄 번역**되며, 끊기더라도 스스로 이어달립니다.")
+st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (오리지널 안정 버전)")
+st.markdown("💡 **Tip**: 안정적인 구버전 API 및 폰트 연동 방식으로 복구되어 번역 오류와 멈춤 현상이 해결되었습니다.")
 
 api_key = ""
 try:
@@ -20,7 +20,11 @@ try:
 except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
 
-# 🛠️ 안전한 한글 폰트 로드 함수 (네트워크 다운로드 방식 제거로 멈춤 현상 원천 차단)
+# API 설정
+if api_key:
+    genai.configure(api_key=api_key)
+
+# 🛠️ 안전한 기본 폰트 로드 함수
 def get_korean_font(size=14):
     font_paths = [
         "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
@@ -165,7 +169,7 @@ if st.session_state.stored_uploaded_files:
 
     st.markdown("---")
 
-    def execute_translation(target_idx, client_obj):
+    def execute_translation(target_idx):
         t_name = file_names[target_idx]
         t_image = Image.open(uploaded_files[target_idx])
         
@@ -194,10 +198,9 @@ if st.session_state.stored_uploaded_files:
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                response = client_obj.models.generate_content(
-                    model='gemini-2.5-flash',
-                    contents=[t_image, prompt]
-                )
+                # 오리지널 안정 모델 및 호출 방식 사용
+                model = genai.GenerativeModel('gemini-1.5-flash')
+                response = model.generate_content([t_image, prompt])
                 res_text = response.text
                 st.session_state.translation_history[t_name] = res_text
                 
@@ -234,31 +237,24 @@ if st.session_state.stored_uploaded_files:
             st.sidebar.error("❌ API Key가 없습니다!")
             st.session_state.auto_translate_running = False
         else:
-            try:
-                client = genai.Client(api_key=api_key)
-            except Exception as init_err:
-                st.sidebar.error(f"❌ 클라이언트 초기화 오류: {init_err}")
-                client = None
-
-            if client:
-                untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
+            untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
+            
+            if not untranslated_indices:
+                st.sidebar.success("🎉 모든 페이지 번역 완료!")
+                st.session_state.auto_translate_running = False
+            else:
+                target_idx = untranslated_indices[0]
+                f_name = file_names[target_idx]
                 
-                if not untranslated_indices:
-                    st.sidebar.success("🎉 모든 페이지 번역 완료!")
-                    st.session_state.auto_translate_running = False
-                else:
-                    target_idx = untranslated_indices[0]
-                    f_name = file_names[target_idx]
-                    
-                    with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
-                        success = execute_translation(target_idx, client)
-                        if success:
-                            time.sleep(12)
-                            st.rerun()
-                        else:
-                            st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
-                            time.sleep(15)
-                            st.rerun()
+                with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
+                    success = execute_translation(target_idx)
+                    if success:
+                        time.sleep(10)
+                        st.rerun()
+                    else:
+                        st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
+                        time.sleep(15)
+                        st.rerun()
 
     action_col1, action_col2 = st.columns(2)
     with action_col1:
@@ -272,8 +268,7 @@ if st.session_state.stored_uploaded_files:
         else:
             with st.spinner(f"[{selected_name}] 페이지 분석 및 번역 중..."):
                 try:
-                    client = genai.Client(api_key=api_key)
-                    success = execute_translation(current_idx, client)
+                    success = execute_translation(current_idx)
                     if success:
                         st.success("현재 페이지 번역 완료!")
                         st.rerun()
@@ -287,14 +282,13 @@ if st.session_state.stored_uploaded_files:
             progress_bar = st.progress(0)
             status_text = st.empty()
             try:
-                client = genai.Client(api_key=api_key)
                 for idx in range(total_files):
                     status_text.text(f"전체 재번역 중: [{idx+1}/{total_files}] {file_names[idx]}")
-                    success = execute_translation(idx, client)
+                    success = execute_translation(idx)
                     if not success:
                         break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(15)
+                    time.sleep(10)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
@@ -302,7 +296,7 @@ if st.session_state.stored_uploaded_files:
 
     st.markdown("---")
 
-    # 이미지 병합 함수 (마크다운 기호 제거 및 안전한 폰트 로드 적용)
+    # 이미지 병합 함수 (오리지널 단순 텍스트 표시 방식)
     def create_merged_image(img_file, res_text, page_name):
         base_img = Image.open(img_file).convert("RGB")
         target_height = base_img.height
@@ -319,9 +313,7 @@ if st.session_state.stored_uploaded_files:
         draw.text((margin, y_text), f"[{volume_name} - {page_name}] Translation", fill=(0, 0, 0), font=font_title)
         y_text += 35
         
-        # 마크다운 특수기호 정제
-        cleaned_text = re.sub(r'[*#_`]', '', res_text)
-        lines = cleaned_text.split('\n')
+        lines = res_text.split('\n')
         
         for line in lines:
             if y_text > target_height - 40:
