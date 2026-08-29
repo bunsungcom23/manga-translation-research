@@ -8,6 +8,7 @@ import os
 import glob
 import re
 import zipfile
+import urllib.request
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
@@ -20,21 +21,44 @@ try:
 except:
     api_key = os.environ.get("GEMINI_API_KEY", "")
 
-def get_korean_font(size=14):
+# 🛠️ 한글 폰트 자동 다운로드 및 설정 (특수기호 및 한글 깨짐 방지)
+@st.cache_resource
+def setup_korean_font():
+    font_path = "NanumGothic.ttf"
+    if not os.path.exists(font_path):
+        try:
+            # 나눔고딕 폰트 무료 다운로드 URL
+            url = "https://github.googlecode.com/svn/trunk/fonts/NanumGothic.ttf" # 백업용 혹은 공공 폰트 링크
+            # 안정적인 구글 폰트 저장소 링크 활용
+            url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+            urllib.request.urlretrieve(url, font_path)
+        except Exception:
+            pass
+            
     font_paths = [
+        font_path,
         "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
         "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
         "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
         "C:/Windows/Fonts/malgun.ttf",
         "C:/Windows/Fonts/gulim.ttc"
     ]
     for path in font_paths:
         if os.path.exists(path):
             try:
-                return ImageFont.truetype(path, size)
+                # 테스트 로드
+                return path
             except:
                 continue
+    return None
+
+def get_korean_font(size=14):
+    path = setup_korean_font()
+    if path and os.path.exists(path):
+        try:
+            return ImageFont.truetype(path, size)
+        except:
+            pass
     try:
         return ImageFont.load_default()
     except:
@@ -193,7 +217,7 @@ if st.session_state.stored_uploaded_files:
         for attempt in range(max_retries):
             try:
                 response = client_obj.models.generate_content(
-                    model='gemini-3.6-flash',
+                    model='gemini-2.5-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -227,7 +251,6 @@ if st.session_state.stored_uploaded_files:
         st.session_state.auto_translate_running = False
         st.rerun()
 
-    # 자동 릴레이 실행기 (사용자가 버튼을 누르지 않아도 번역되지 않은 다음 장을 찾아 스스로 루프를 돎)
     if st.session_state.auto_translate_running:
         if not api_key:
             st.sidebar.error("❌ API Key가 없습니다!")
@@ -246,15 +269,14 @@ if st.session_state.stored_uploaded_files:
                     st.sidebar.success("🎉 모든 페이지 번역 완료!")
                     st.session_state.auto_translate_running = False
                 else:
-                    # 이번 턴에 한 장만 안전하게 번역하고 페이지를 자동 갱신(Rerun)하여 부하를 분산시킴
                     target_idx = untranslated_indices[0]
                     f_name = file_names[target_idx]
                     
                     with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
                         success = execute_translation(target_idx, client)
                         if success:
-                            time.sleep(12)  # API 부하 방지 대기 시간
-                            st.rerun()      # 스스로 새로고침하여 다음 장으로 자동 이동
+                            time.sleep(12)
+                            st.rerun()
                         else:
                             st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
                             time.sleep(15)
@@ -302,6 +324,7 @@ if st.session_state.stored_uploaded_files:
 
     st.markdown("---")
 
+    # 🛠️ 이미지 병합 함수 수정 (마크다운 특수기호 정제 및 올바른 폰트 적용)
     def create_merged_image(img_file, res_text, page_name):
         base_img = Image.open(img_file).convert("RGB")
         target_height = base_img.height
@@ -318,13 +341,16 @@ if st.session_state.stored_uploaded_files:
         draw.text((margin, y_text), f"[{volume_name} - {page_name}] Translation", fill=(0, 0, 0), font=font_title)
         y_text += 35
         
-        lines = res_text.split('\n')
+        # 번역 텍스트 내 불필요한 마크다운 서식 문자(*, #, 백틱 등) 정제
+        cleaned_text = re.sub(r'[*#_`]', '', res_text)
+        lines = cleaned_text.split('\n')
+        
         for line in lines:
             if y_text > target_height - 40:
                 draw.text((margin, y_text), "... (내용 생략됨)", fill=(100, 100, 100), font=font_body)
                 break
             
-            max_chars = 40
+            max_chars = 38
             wrapped_line = [line[i:i+max_chars] for i in range(0, len(line), max_chars)] if len(line) > max_chars else [line]
             for w_line in wrapped_line:
                 if y_text > target_height - 30:
