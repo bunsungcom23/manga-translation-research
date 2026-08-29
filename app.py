@@ -11,8 +11,8 @@ import zipfile
 
 st.set_page_config(page_title="대규모 만화 판본별 비교 번역 뷰어", layout="wide")
 
-st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (자동 릴레이 및 일괄 이미지 저장)")
-st.markdown("💡 **Tip**: 자동 릴레이 번역 완료 후, 사이드바의 **[모든 병합 이미지 ZIP 생성]**을 누르면 원본과 번역이 나란히 붙은 이미지들을 한 번에 다운로드받을 수 있습니다.")
+st.title("📚 대규모 만화 권(Volume)별 판본 비교 번역 시스템 (자동 릴레이 모드)")
+st.markdown("💡 **Tip**: 이미지를 올리면 **버튼을 누를 필요 없이 미번역 페이지가 자동으로 연쇄 번역**되며, 끊기더라도 스스로 이어달립니다.")
 
 api_key = ""
 try:
@@ -189,12 +189,11 @@ if st.session_state.stored_uploaded_files:
         4. Format the output clearly, matching each bubble number or text block with its extracted original text and Korean translation.
         """
 
-        max_retries = 3
+        max_retries = 5
         for attempt in range(max_retries):
             try:
-                # 💡 원래 사용하시던 모델명으로 변경 가능 (예: 'gemini-1.5-flash' 등)
                 response = client_obj.models.generate_content(
-                    model='gemini-1.5-flash',
+                    model='gemini-3.6-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -206,10 +205,9 @@ if st.session_state.stored_uploaded_files:
                 return True
             except Exception as e:
                 if attempt == max_retries - 1:
-                    st.error(f"⚠️ API 상세 오류 내용: {e}")
                     return False
                 else:
-                    time.sleep(3 * (attempt + 1))
+                    time.sleep(10 * (attempt + 1))
         return False
 
     st.sidebar.markdown("---")
@@ -253,11 +251,11 @@ if st.session_state.stored_uploaded_files:
                     with st.spinner(f"🚀 자동 번역 중 [{volume_name}]: {f_name} (남은 페이지: {len(untranslated_indices)}장)"):
                         success = execute_translation(target_idx, client)
                         if success:
-                            time.sleep(2)
+                            time.sleep(12)
                             st.rerun()
                         else:
-                            st.error(f"⚠️ [{f_name}] 번역 실패. 5초 후 자동으로 다시 시도합니다.")
-                            time.sleep(5)
+                            st.error(f"⚠️ [{f_name}] 번역 실패. 잠시 후 자동으로 다시 시도합니다.")
+                            time.sleep(15)
                             st.rerun()
 
     action_col1, action_col2 = st.columns(2)
@@ -278,7 +276,7 @@ if st.session_state.stored_uploaded_files:
                         st.success("현재 페이지 번역 완료!")
                         st.rerun()
                     else:
-                        st.error("번역 실패 (API 응답 오류 - 위의 상세 오류 메시지를 확인해주세요)")
+                        st.error("번역 실패 (API 응답 오류)")
                 except Exception as e:
                     st.error(f"오류: {e}")
 
@@ -296,7 +294,7 @@ if st.session_state.stored_uploaded_files:
                     if not success:
                         break
                     progress_bar.progress((idx + 1) / total_files)
-                    time.sleep(2)
+                    time.sleep(15)
                 st.success("전체 강제 재번역 완료!")
                 st.rerun()
             except Exception as e:
@@ -320,7 +318,10 @@ if st.session_state.stored_uploaded_files:
         draw.text((margin, y_text), f"[{volume_name} - {page_name}] Translation", fill=(0, 0, 0), font=font_title)
         y_text += 35
         
-        lines = res_text.split('\n')
+        # 💡 Pillow 기본 폰트가 표현하지 못하는 특수 기호/유니코드 오류 방지용 치환 로직
+        safe_text = res_text.replace("\r\n", "\n")
+        lines = safe_text.split('\n')
+        
         for line in lines:
             if y_text > target_height - 40:
                 draw.text((margin, y_text), "... (내용 생략됨)", fill=(100, 100, 100), font=font_body)
@@ -331,7 +332,11 @@ if st.session_state.stored_uploaded_files:
             for w_line in wrapped_line:
                 if y_text > target_height - 30:
                     break
-                draw.text((margin, y_text), w_line, fill=(30, 30, 30), font=font_body)
+                
+                # Pillow 렌더링 시 처리할 수 없는 특수문자나 널 문자로 인한 이미지 생성 크래시 방지 처리
+                clean_w_line = "".join(c if ord(c) < 65536 and c not in ['\ufffd'] else '?' for c in w_line)
+                
+                draw.text((margin, y_text), clean_w_line, fill=(30, 30, 30), font=font_body)
                 y_text += 22
             y_text += 4
 
@@ -342,10 +347,10 @@ if st.session_state.stored_uploaded_files:
         return combined_image
 
     st.sidebar.markdown("---")
-    st.sidebar.subheader("📦 병합 이미지 ZIP 일괄 저장")
+    st.sidebar.subheader("📦 병합 이미지 ZIP 저장")
     if st.session_state.translation_history:
         if st.sidebar.button(f"🖼️ [{volume_name}] 모든 병합 이미지 ZIP 생성"):
-            with st.spinner("모든 페이지의 병합 이미지를 생성하고 압축하는 중입니다..."):
+            with st.spinner("대규모 이미지 생성 및 압축 중..."):
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
                     for idx, file_obj in enumerate(uploaded_files):
@@ -363,13 +368,13 @@ if st.session_state.stored_uploaded_files:
                 
                 zip_buffer.seek(0)
                 st.sidebar.download_button(
-                    label="📥 압축된 ZIP 파일 다운로드",
+                    label="📥 ZIP 파일 다운로드",
                     data=zip_buffer,
                     file_name=f"{volume_name}_merged_images_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
                     mime="application/zip"
                 )
     else:
-        st.sidebar.info("번역된 내역이 있어야 일괄 이미지 다운로드가 활성화됩니다.")
+        st.sidebar.info("번역된 내역이 있어야 다운로드가 가능합니다.")
 
     col1, col2 = st.columns(2)
 
@@ -410,7 +415,7 @@ if st.session_state.stored_uploaded_files:
             )
             
             st.markdown("---")
-            if st.button("🖼️ 현재 페이지만 이미지(PNG)로 병합 저장"):
+            if st.button("🖼️ 원본+번역 결과를 이미지(PNG)로 병합 저장"):
                 with st.spinner("이미지 생성 중..."):
                     selected_file.seek(0)
                     combined_image = create_merged_image(selected_file, result_text, selected_name)
@@ -419,7 +424,7 @@ if st.session_state.stored_uploaded_files:
                     byte_im = buf.getvalue()
                     
                     st.download_button(
-                        label="💾 이 병합 이미지 최종 다운로드",
+                        label="💾 병합된 이미지 최종 다운로드",
                         data=byte_im,
                         file_name=f"{volume_name}_merged_{selected_name}.png",
                         mime="image/png"
