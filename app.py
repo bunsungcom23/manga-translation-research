@@ -173,8 +173,9 @@ if st.session_state.stored_uploaded_files:
         max_retries = 5
         for attempt in range(max_retries):
             try:
+                # 💡 정상 작동하던 원래 모델명으로 원복 완료
                 response = client_obj.models.generate_content(
-                    model='gemini-2.5-flash',
+                    model='gemini-3.6-flash',
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
@@ -208,7 +209,6 @@ if st.session_state.stored_uploaded_files:
         st.session_state.auto_translate_running = False
         st.rerun()
 
-    # 실시간 진행 상황 UI 영역
     untranslated_indices = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
     completed_count = total_files - len(untranslated_indices)
     
@@ -218,7 +218,6 @@ if st.session_state.stored_uploaded_files:
     st.sidebar.text(f"완료: {completed_count} / {total_files} 페이지 ({int(progress_val * 100)}%)")
     
     if st.session_state.auto_translate_running and len(untranslated_indices) > 0:
-        # 남은 예상 시간 계산 (페이지당 약 90초 기준 추정)
         remaining_pages = len(untranslated_indices)
         est_seconds = remaining_pages * 90
         est_min = est_seconds // 60
@@ -237,7 +236,6 @@ if st.session_state.stored_uploaded_files:
                 client = None
 
             if client:
-                # 이어하기 로직: 아직 번역되지 않은 첫 번째 페이지를 자동으로 타겟팅
                 current_untranslated = [i for i, f in enumerate(file_names) if f not in st.session_state.translation_history]
                 
                 if not current_untranslated:
@@ -262,7 +260,6 @@ if st.session_state.stored_uploaded_files:
     with action_col1:
         single_btn = st.button("🤖 현재 선택된 페이지만 번역", use_container_width=True)
     with action_col2:
-        # 빈 자리를 맞추거나 여백용 (전체 강제 재번역 버튼 제거됨)
         st.empty()
 
     if single_btn:
@@ -290,7 +287,6 @@ if st.session_state.stored_uploaded_files:
         
         formatted_text = res_text.replace("\n", "<br>")
         
-        # HTML 내부에도 스크롤 박스 및 좌우 대칭 레이아웃 적용
         html_content = f"""
         <!DOCTYPE html>
         <html lang="ko">
