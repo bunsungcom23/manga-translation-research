@@ -62,14 +62,12 @@ st.markdown("💡 **Tip**: 각자 본인의 Gemini API Key를 입력하여 안�
 with st.sidebar:
     st.header("⚙️ 프로젝트 & API 설정")
     
-    # 사용자가 직접 입력하는 비밀번호 형태의 입력창
     user_api_key = st.text_input(
         "🔑 Gemini API Key 입력", 
         type="password", 
         help="Google AI Studio에서 발급받은 본인의 API Key를 입력하세요."
     )
     
-    # 입력된 키 사용, 없으면 빈 값
     if user_api_key:
         api_key = user_api_key
         st.success("✅ 사용자 API Key 연동 완료")
@@ -219,6 +217,13 @@ if st.session_state.stored_uploaded_files:
                     contents=[t_image, prompt]
                 )
                 res_text = response.text
+                
+                # [방어 코드] 응답이 비어있거나 None일 경우 대비
+                if res_text is None:
+                    res_text = "(API 응답이 비어있습니다.)"
+                else:
+                    res_text = str(res_text)
+
                 st.session_state.translation_history[t_name] = res_text
                 
                 backup_filename = f"manga_backup_{volume_name}_{t_name}.txt"
@@ -325,6 +330,12 @@ if st.session_state.stored_uploaded_files:
         img_bytes = img_file.read()
         encoded_img = base64.b64encode(img_bytes).decode("utf-8")
         
+        # [방어 코드] res_text가 None이거나 문자열이 아닐 경우 대비
+        if res_text is None:
+            res_text = "(번역 내용이 없거나 불러오지 못했습니다.)"
+        else:
+            res_text = str(res_text)
+
         formatted_text = res_text.replace("\n", "<br>")
         
         html_content = f"""
